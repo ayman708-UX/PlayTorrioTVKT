@@ -177,10 +177,8 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                             if (!state.showControls) {
                                 val hasNext = !state.isMovie && state.nextEpisode != null && !state.isSwitchingEpisode
                                 val nearEnd = state.duration > 0 &&
-                                    state.currentPosition >= (state.duration * 0.95).toLong()
-                                // Next Episode is visible whenever a skip segment is active
-                                // (any type) or we're past 95% of the runtime.
-                                val nextEpVisible = hasNext && (state.activeSkipSegment != null || nearEnd)
+                                    state.currentPosition >= (state.duration * 0.90).toLong()
+                                val nextEpVisible = hasNext && nearEnd
                                 if (nextEpVisible) {
                                     viewModel.playNextEpisode()
                                 } else if (state.activeSkipSegment != null) {
@@ -280,58 +278,53 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         PauseOverlay(state, viewModel)
 
         // ── Skip + Next Episode floating buttons ──
-        // When both are visible they stack: Skip on top, Next Episode below.
-        // The Next Episode button stays anchored at the original bottom-right
-        // position so the existing focus entry from the progress bar (UP key)
-        // still lands on it.
+        // Skip = whenever a skip segment is active (any type).
+        // Next Episode = only when we're past 95% of the runtime.
+        // When both happen at once, they sit side by side: Skip on the left,
+        // Next Episode on the right (DPAD ←/→ moves between them).
         val skipSeg = state.activeSkipSegment
         val panelsOpen = state.showEpisodesPanel || state.showEpisodeSourceOverlay ||
             state.showSourcesPanel || state.showSubtitleOverlay ||
             state.showAudioOverlay || state.showSubtitleStylePanel
         val hasNextEp = !state.isMovie && state.nextEpisode != null && !state.isSwitchingEpisode
         val nearEnd = state.duration > 0 &&
-            state.currentPosition >= (state.duration * 0.95).toLong()
-        // Show Next Episode whenever ANY skip segment fires (and a next ep exists),
-        // or — even with no skip marker — once we cross 95% of the runtime.
-        val showNextEp = hasNextEp && !panelsOpen && (skipSeg != null || nearEnd)
+            state.currentPosition >= (state.duration * 0.90).toLong()
         val showSkip = skipSeg != null && !panelsOpen
+        val showNextEp = hasNextEp && !panelsOpen && nearEnd
         val bothVisible = showSkip && showNextEp
-        val topSkipFocusRequester = remember { FocusRequester() }
+        val leftSkipFocusRequester = remember { FocusRequester() }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 48.dp, bottom = if (state.showControls) 140.dp else 48.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            AnimatedVisibility(
-                visible = showSkip,
-                enter = slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)),
-                exit = slideOutHorizontally(tween(250)) { it } + fadeOut(tween(250))
+        // Plain conditional render (no AnimatedVisibility) so focus traversal
+        // works the moment the buttons appear.
+        if (showSkip || showNextEp) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = if (state.showControls) 140.dp else 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                skipSeg?.let { seg ->
+                if (showSkip) {
+                    skipSeg?.let { seg ->
+                        SkipButton(
+                            label = seg.type.label,
+                            focusRequester = if (bothVisible) leftSkipFocusRequester else skipButtonFocusRequester,
+                            downFocusRequester = progressBarFocusRequester,
+                            rightFocusRequester = if (bothVisible) skipButtonFocusRequester else null,
+                            onClick = { viewModel.skipActiveSegment() }
+                        )
+                    }
+                }
+
+                if (showNextEp) {
                     SkipButton(
-                        label = seg.type.label,
-                        focusRequester = if (bothVisible) topSkipFocusRequester else skipButtonFocusRequester,
-                        downFocusRequester = if (bothVisible) skipButtonFocusRequester else progressBarFocusRequester,
-                        onClick = { viewModel.skipActiveSegment() }
+                        label = "Next Episode",
+                        focusRequester = skipButtonFocusRequester,
+                        downFocusRequester = progressBarFocusRequester,
+                        leftFocusRequester = if (bothVisible) leftSkipFocusRequester else null,
+                        onClick = { viewModel.playNextEpisode() }
                     )
                 }
-            }
-
-            AnimatedVisibility(
-                visible = showNextEp,
-                enter = slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)),
-                exit = slideOutHorizontally(tween(250)) { it } + fadeOut(tween(250))
-            ) {
-                SkipButton(
-                    label = "Next Episode",
-                    focusRequester = skipButtonFocusRequester,
-                    downFocusRequester = progressBarFocusRequester,
-                    upFocusRequester = if (bothVisible) topSkipFocusRequester else null,
-                    onClick = { viewModel.playNextEpisode() }
-                )
             }
         }
 
@@ -601,10 +594,8 @@ private fun PlayerControlsOverlay(
             Spacer(Modifier.height(12.dp))
 
             // Progress bar
-            val nextEpVisible = !state.isMovie && state.nextEpisode != null && !state.isSwitchingEpisode && (
-                state.activeSkipSegment != null ||
-                (state.duration > 0 && state.currentPosition >= (state.duration * 0.95).toLong())
-            )
+            val nextEpVisible = !state.isMovie && state.nextEpisode != null && !state.isSwitchingEpisode &&
+                state.duration > 0 && state.currentPosition >= (state.duration * 0.90).toLong()
             val skipOrNextVisible = state.activeSkipSegment != null || nextEpVisible
             ProgressBar(
                 currentPosition = state.pendingPreviewSeekPosition ?: state.currentPosition,
@@ -956,6 +947,8 @@ private fun SkipButton(
     focusRequester: FocusRequester,
     downFocusRequester: FocusRequester,
     upFocusRequester: FocusRequester? = null,
+    leftFocusRequester: FocusRequester? = null,
+    rightFocusRequester: FocusRequester? = null,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -976,6 +969,8 @@ private fun SkipButton(
             .focusProperties {
                 down = downFocusRequester
                 upFocusRequester?.let { up = it }
+                leftFocusRequester?.let { left = it }
+                rightFocusRequester?.let { right = it }
             }
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()

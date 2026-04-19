@@ -83,8 +83,8 @@ fun StreamingSplash(
             val priorityOrder = buildList {
                 // If resuming from a remembered source, try it first.
                 forceSourceIndex?.let { add(it) }
-                addAll(listOf(2, 8, 3))
-            }.distinct() // Videasy, VidFun, Vidlink (or remembered first)
+                addAll(listOf(8, 3, 2))
+            }.distinct() // VidFun, Vidlink, Videasy (or remembered first)
             val orderedSources = buildList {
                 priorityOrder.forEach { idx ->
                     StreamExtractorService.SOURCES.find { it.index == idx }?.let { add(it) }

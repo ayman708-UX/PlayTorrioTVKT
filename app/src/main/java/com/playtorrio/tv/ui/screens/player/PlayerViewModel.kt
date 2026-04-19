@@ -220,7 +220,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** Source priority order matching StreamingSplash. */
-    private val sourcePriorityOrder = listOf(2, 8, 3)
+    private val sourcePriorityOrder = listOf(8, 3, 2)
     private val orderedSourceIndices: List<Int> by lazy {
         buildList {
             sourcePriorityOrder.forEach { idx ->
@@ -409,6 +409,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     val segments = SkipSegmentService.fetchSegments(tmdbId, isMovie, seasonNumber, episodeNumber)
                     _uiState.update { it.copy(skipSegments = segments) }
                     Log.i(TAG, "Skip segments loaded: ${segments.size}")
+                }
+
+                // Eagerly load season for series so Next Episode button can appear.
+                if (!isMovie && seasonNumber != null) {
+                    launch { loadEpisodesForCurrentSeries() }
                 }
             } catch (e: Exception) {
                 Log.e("PlayerViewModel", "Stream setup failed: ${e.message}", e)
@@ -1148,6 +1153,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val segments = SkipSegmentService.fetchSegments(tmdbId, isMovie, seasonNumber, episodeNumber)
                 _uiState.update { it.copy(skipSegments = segments) }
                 Log.i(TAG, "Skip segments loaded (streaming): ${segments.size}")
+            }
+            // Eagerly load the season for series so the Next Episode button can
+            // appear at end-of-runtime without the user opening the panel first.
+            if (!isMovie && seasonNumber != null) {
+                launch { loadEpisodesForCurrentSeries() }
             }
             withContext(Dispatchers.Main) {
                 createStreamingPlayer(streamUrl, referer)

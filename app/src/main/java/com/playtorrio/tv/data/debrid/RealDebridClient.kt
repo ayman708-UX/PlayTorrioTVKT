@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -24,7 +25,12 @@ object RealDebridClient {
      * Resolves a magnet link to a direct HTTPS download URL via Real-Debrid.
      * Cache-check first: returns null immediately if the torrent is not cached.
      */
-    suspend fun resolve(magnetUri: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolve(
+        magnetUri: String,
+        isMovie: Boolean = true,
+        season: Int? = null,
+        episode: Int? = null,
+    ): String? = withContext(Dispatchers.IO) {
         try {
             val apiKey = AppPreferences.realDebridApiKey.trim()
             if (apiKey.isEmpty()) {
@@ -49,16 +55,28 @@ object RealDebridClient {
                 return@withContext null
             }
 
-            // 3. Select all files
-            selectFiles(apiKey, torrentId)
+            // 3. Wait for file list to be available, then pick the right file
+            val files = waitForFiles(apiKey, torrentId, maxWaitMs = 15_000) ?: run {
+                Log.w(TAG, "No files reported for torrent $torrentId")
+                return@withContext null
+            }
+            val targetFileId = EpisodeFileMatcher.pickFile(files, isMovie, season, episode)
+            if (targetFileId == null) {
+                Log.w(TAG, "No video file matched (season=$season episode=$episode); aborting")
+                return@withContext null
+            }
+            Log.d(TAG, "Selected RD file id=$targetFileId for s=$season e=$episode isMovie=$isMovie")
 
-            // 4. Poll for download link (should be instant since cached)
+            // 4. Select only the chosen file
+            selectFiles(apiKey, torrentId, targetFileId.toString())
+
+            // 5. Poll for download link (should be instant since cached)
             val link = getTorrentLink(apiKey, torrentId, maxWaitMs = 15_000) ?: run {
                 Log.w(TAG, "No download link found for torrent $torrentId")
                 return@withContext null
             }
 
-            // 5. Unrestrict link to get the final CDN URL
+            // 6. Unrestrict link to get the final CDN URL
             val downloadUrl = unrestrictLink(apiKey, link)
             Log.d(TAG, "Resolved: $downloadUrl")
             downloadUrl
@@ -66,6 +84,35 @@ object RealDebridClient {
             Log.e(TAG, "Error resolving via Real-Debrid", e)
             null
         }
+    }
+
+    private fun waitForFiles(apiKey: String, torrentId: String, maxWaitMs: Long): List<Triple<Int, String, Long>>? {
+        val deadline = System.currentTimeMillis() + maxWaitMs
+        while (System.currentTimeMillis() < deadline) {
+            val req = Request.Builder()
+                .url("$BASE/torrents/info/$torrentId")
+                .header("Authorization", "Bearer $apiKey")
+                .get()
+                .build()
+            val body = http.newCall(req).execute().use { it.body?.string() } ?: return null
+            val obj = runCatching { JSONObject(body) }.getOrNull() ?: return null
+            val arr = obj.optJSONArray("files")
+            if (arr != null && arr.length() > 0) {
+                val out = ArrayList<Triple<Int, String, Long>>(arr.length())
+                for (i in 0 until arr.length()) {
+                    val f = arr.optJSONObject(i) ?: continue
+                    val id = f.optInt("id", -1)
+                    val path = f.optString("path", "")
+                    val size = f.optLong("bytes", 0L)
+                    if (id > 0 && path.isNotEmpty()) {
+                        out.add(Triple(id, path, size))
+                    }
+                }
+                if (out.isNotEmpty()) return out
+            }
+            Thread.sleep(500)
+        }
+        return null
     }
 
     private fun isCached(apiKey: String, hash: String): Boolean {
@@ -96,8 +143,8 @@ object RealDebridClient {
         return runCatching { JSONObject(respBody).getString("id") }.getOrNull()
     }
 
-    private fun selectFiles(apiKey: String, torrentId: String) {
-        val body = FormBody.Builder().add("files", "all").build()
+    private fun selectFiles(apiKey: String, torrentId: String, files: String = "all") {
+        val body = FormBody.Builder().add("files", files).build()
         val req = Request.Builder()
             .url("$BASE/torrents/selectFiles/$torrentId")
             .header("Authorization", "Bearer $apiKey")

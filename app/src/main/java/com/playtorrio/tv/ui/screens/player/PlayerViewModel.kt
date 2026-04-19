@@ -348,7 +348,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 if (AppPreferences.debridEnabled) {
                     _uiState.update { it.copy(connectionStatus = "Resolving via debrid…") }
-                    val debridUrl = DebridResolver.resolve(magnetUri)
+                    val debridUrl = DebridResolver.resolve(magnetUri, isMovie, seasonNumber, episodeNumber)
                         ?: throw IllegalStateException(
                             "Debrid is enabled, but this torrent is not cached or could not be resolved."
                         )
@@ -1691,7 +1691,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 // 2. Resolve new
                 if (AppPreferences.debridEnabled) {
                     _uiState.update { it.copy(connectionStatus = "Resolving via debrid…") }
-                    val debridUrl = com.playtorrio.tv.data.debrid.DebridResolver.resolve(magnet)
+                    val debridUrl = com.playtorrio.tv.data.debrid.DebridResolver.resolve(magnet, isMovie = false, season = sNum, episode = eNum)
                         ?: throw IllegalStateException("Debrid could not resolve this torrent")
                     withContext(Dispatchers.Main) {
                         addedExternalSubConfigs.clear()

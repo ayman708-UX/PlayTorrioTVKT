@@ -13,12 +13,17 @@ object DebridResolver {
      *
      * Caller falls back to TorrServer when null is returned.
      */
-    suspend fun resolve(source: String): String? {
+    suspend fun resolve(
+        source: String,
+        isMovie: Boolean = true,
+        season: Int? = null,
+        episode: Int? = null,
+    ): String? {
         if (!AppPreferences.debridEnabled) return null
         if (!source.startsWith("magnet:", ignoreCase = true)) return null
         return when (AppPreferences.debridProvider) {
-            "realdebrid" -> RealDebridClient.resolve(source)
-            "torbox"     -> TorBoxClient.resolve(source)
+            "realdebrid" -> RealDebridClient.resolve(source, isMovie, season, episode)
+            "torbox"     -> TorBoxClient.resolve(source, isMovie, season, episode)
             else         -> null
         }
     }

@@ -26,7 +26,12 @@ object TorBoxClient {
      * Resolves a magnet link to a direct HTTPS download URL via TorBox.
      * Cache-check first: returns null immediately if the torrent is not cached.
      */
-    suspend fun resolve(magnetUri: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolve(
+        magnetUri: String,
+        isMovie: Boolean = true,
+        season: Int? = null,
+        episode: Int? = null,
+    ): String? = withContext(Dispatchers.IO) {
         try {
             val apiKey = AppPreferences.torboxApiKey.trim()
             if (apiKey.isEmpty()) {
@@ -51,11 +56,12 @@ object TorBoxClient {
                 return@withContext null
             }
 
-            // 3. Poll mylist until torrent entry has file info
-            val fileId = getVideoFileId(apiKey, torrentId, maxWaitMs = 20_000) ?: run {
+            // 3. Poll mylist until torrent entry has file info; pick file matching episode
+            val fileId = getVideoFileId(apiKey, torrentId, isMovie, season, episode, maxWaitMs = 20_000) ?: run {
                 Log.w(TAG, "No video file found for torrent $torrentId")
                 return@withContext null
             }
+            Log.d(TAG, "Selected TorBox file id=$fileId for s=$season e=$episode isMovie=$isMovie")
 
             // 4. Request download link
             val url = requestDownloadLink(apiKey, torrentId, fileId)
@@ -99,7 +105,14 @@ object TorBoxClient {
         return data.optInt("torrent_id", -1).takeIf { it > 0 }
     }
 
-    private fun getVideoFileId(apiKey: String, torrentId: Int, maxWaitMs: Long): Int? {
+    private fun getVideoFileId(
+        apiKey: String,
+        torrentId: Int,
+        isMovie: Boolean,
+        season: Int?,
+        episode: Int?,
+        maxWaitMs: Long
+    ): Int? {
         val deadline = System.currentTimeMillis() + maxWaitMs
         while (System.currentTimeMillis() < deadline) {
             val req = Request.Builder()
@@ -121,20 +134,18 @@ object TorBoxClient {
 
             val readyStates = setOf("cached", "completed", "uploading", "seeding")
             if (downloadState in readyStates && files != null && files.length() > 0) {
-                var bestId = -1
-                var bestSize = -1L
+                val list = ArrayList<Triple<Int, String, Long>>(files.length())
                 for (i in 0 until files.length()) {
                     val file = files.optJSONObject(i) ?: continue
+                    val id = file.optInt("id", -1)
                     val name = file.optString("name", "")
-                    val ext = name.substringAfterLast('.', "").lowercase()
-                    if (ext !in VIDEO_EXTENSIONS) continue
                     val size = file.optLong("size", 0L)
-                    if (size > bestSize) {
-                        bestSize = size
-                        bestId = file.optInt("id", -1)
+                    if (id != -1 && name.isNotEmpty()) {
+                        list.add(Triple(id, name, size))
                     }
                 }
-                if (bestId != -1) return bestId
+                val picked = EpisodeFileMatcher.pickFile(list, isMovie, season, episode)
+                if (picked != null) return picked
             }
             Thread.sleep(1_500)
         }

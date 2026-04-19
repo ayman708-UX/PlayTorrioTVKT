@@ -626,8 +626,7 @@ private fun StremioStreamRow(
                     color = if (isFocused) Color.White else Color.White.copy(alpha = 0.8f),
                     fontSize = 13.sp,
                     fontWeight = if (isFocused) FontWeight.Medium else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    lineHeight = 17.sp
                 )
                 if (!stream.description.isNullOrBlank() || !stream.title.isNullOrBlank()) {
                     val subtitle = stream.description ?: stream.title
@@ -637,8 +636,7 @@ private fun StremioStreamRow(
                             text = subtitle,
                             color = Color.White.copy(alpha = 0.4f),
                             fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            lineHeight = 15.sp
                         )
                     }
                 }

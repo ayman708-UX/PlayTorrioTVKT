@@ -9,13 +9,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 
@@ -67,7 +74,10 @@ fun UpdatePopup(
     versionName: String,
     releaseNotes: String,
     onUpdateNow: () -> Unit,
-    onLater: () -> Unit
+    onLater: () -> Unit,
+    isDownloading: Boolean = false,
+    downloadedBytes: Long = 0L,
+    totalBytes: Long = 0L,
 ) {
     Dialog(
         onDismissRequest = onLater,
@@ -81,10 +91,7 @@ fun UpdatePopup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.85f))
-                // Swallow any DPAD events that don't hit the buttons so the
-                // screen behind never sees them.
-                .onPreviewKeyEvent { true },
+                .background(Color.Black.copy(alpha = 0.85f)),
             contentAlignment = Alignment.Center
         ) {
             val updateFocus = remember { FocusRequester() }
@@ -94,7 +101,9 @@ fun UpdatePopup(
 
             Column(
                 modifier = Modifier
-                    .widthIn(min = 520.dp, max = 720.dp)
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 720.dp)
+                    .heightIn(max = 560.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(
                         Brush.verticalGradient(
@@ -106,12 +115,12 @@ fun UpdatePopup(
                         color = Color.White.copy(alpha = 0.10f),
                         shape = RoundedCornerShape(20.dp)
                     )
-                    .padding(horizontal = 36.dp, vertical = 32.dp),
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(Color(0xFFE50914).copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
@@ -120,64 +129,111 @@ fun UpdatePopup(
                         imageVector = Icons.Filled.SystemUpdate,
                         contentDescription = null,
                         tint = Color(0xFFE50914),
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
                     text = "Update Available",
                     color = Color.White,
-                    fontSize = 26.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = "Version $versionName is ready to install.",
                     color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 15.sp
+                    fontSize = 13.sp
                 )
 
-                if (releaseNotes.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .heightInScrollable()
-                    ) {
-                        val scroll = rememberScrollState()
-                        Column(modifier = Modifier.verticalScroll(scroll)) {
+                // Scrollable middle area so buttons stay pinned at the bottom.
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 14.dp, bottom = 14.dp)
+                ) {
+                    if (releaseNotes.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
                             Text(
                                 text = releaseNotes.trim(),
                                 color = Color.White.copy(alpha = 0.72f),
-                                fontSize = 13.sp
+                                fontSize = 12.sp
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    UpdateDialogButton(
-                        text = "Later",
-                        primary = false,
-                        modifier = Modifier,
-                        onClick = onLater
-                    )
-                    UpdateDialogButton(
-                        text = "Update Now",
-                        primary = true,
-                        modifier = Modifier.focusRequester(updateFocus),
-                        onClick = onUpdateNow
-                    )
+                if (isDownloading) {
+                    val pct = if (totalBytes > 0) (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else null
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (pct != null) {
+                            LinearProgressIndicator(
+                                progress = { pct },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .progressSemantics(),
+                                color = Color(0xFFE50914),
+                                trackColor = Color.White.copy(alpha = 0.10f),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Downloading… ${(pct * 100).toInt()}%  (${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)})",
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontSize = 13.sp,
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .progressSemantics(),
+                                color = Color(0xFFE50914),
+                                trackColor = Color.White.copy(alpha = 0.10f),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Downloading… ${formatBytes(downloadedBytes)}",
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontSize = 13.sp,
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+                    ) {
+                        UpdateDialogButton(
+                            text = "Later",
+                            primary = false,
+                            modifier = Modifier,
+                            onClick = onLater
+                        )
+                        UpdateDialogButton(
+                            text = "Update Now",
+                            primary = true,
+                            modifier = Modifier.focusRequester(updateFocus),
+                            onClick = onUpdateNow
+                        )
+                    }
                 }
             }
         }
@@ -192,34 +248,18 @@ private fun UpdateDialogButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val baseColor = if (primary) Color(0xFFE50914) else Color.White.copy(alpha = 0.12f)
-    val focusedColor = if (primary) Color(0xFFFF1F2E) else Color.White.copy(alpha = 0.28f)
-    val border = if (focused) Color.White else Color.Transparent
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (focused) focusedColor else baseColor)
-            .border(2.dp, border, RoundedCornerShape(12.dp))
-            .focusable()
-            .onFocusChanged { focused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                            onClick(); true
-                        }
-                        // Block vertical navigation so focus can't escape the dialog.
-                        Key.DirectionUp, Key.DirectionDown -> true
-                        else -> false
-                    }
-                } else false
-            }
-            .clickable(onClick = onClick)
-            .widthIn(min = 160.dp)
-            .padding(horizontal = 28.dp, vertical = 14.dp)
-            .wrapContentSize(Alignment.Center)
+    val container = if (primary) Color(0xFFE50914) else Color.White.copy(alpha = 0.14f)
+    val focusedContainer = if (primary) Color(0xFFFF1F2E) else Color.White.copy(alpha = 0.30f)
+    Button(
+        onClick = onClick,
+        modifier = modifier.widthIn(min = 130.dp),
+        shape = ButtonDefaults.shape(shape = RoundedCornerShape(12.dp)),
+        colors = ButtonDefaults.colors(
+            containerColor = container,
+            contentColor = Color.White,
+            focusedContainerColor = focusedContainer,
+            focusedContentColor = Color.White,
+        ),
     ) {
         Text(
             text = text,
@@ -234,3 +274,9 @@ private fun UpdateDialogButton(
 @Composable
 private fun Modifier.heightInScrollable(): Modifier =
     this.then(Modifier.height(140.dp))
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val mb = bytes / 1024.0 / 1024.0
+    return if (mb >= 1.0) "%.1f MB".format(mb) else "%.0f KB".format(bytes / 1024.0)
+}

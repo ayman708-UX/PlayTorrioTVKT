@@ -1,0 +1,28 @@
+﻿# ─── Signing keys / secrets (NEVER commit) ──
+*.jks
+*.keystore
+key.properties
+keystore.properties
+local.properties
+
+# ─── Gradle / Kotlin build artifacts ──
+.gradle/
+.kotlin/
+**/build/
+build/
+captures/
+out/
+.cxx/
+
+# ─── Android Studio / IntelliJ ──
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ─── OS / editor junk ──
+.DS_Store
+Thumbs.db
+*.swp
+*.log
+.vscode/

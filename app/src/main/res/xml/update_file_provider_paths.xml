@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- APK is downloaded into <external-files>/updates/ and shared via FileProvider -->
+    <external-files-path name="updates" path="updates/" />
+    <files-path name="internal_updates" path="updates/" />
+</paths>

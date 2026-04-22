@@ -254,7 +254,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         VideoRenderer(viewModel, state)
 
         // ── Buffering indicator ──
-        if ((state.isBuffering || state.isConnecting) && !state.showPauseOverlay) {
+        if ((state.isBuffering || state.isConnecting || state.isReconnecting) && !state.showPauseOverlay) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
@@ -262,6 +262,14 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                         modifier = Modifier.size(48.dp),
                         strokeWidth = 3.dp
                     )
+                    if (state.isReconnecting && state.reconnectStatus.isNotBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            state.reconnectStatus,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 13.sp,
+                        )
+                    }
                     if (state.torrentHash != null) {
                         Spacer(Modifier.height(12.dp))
                         Text(
@@ -667,8 +675,8 @@ private fun PlayerControlsOverlay(
                         onFocused = { viewModel.scheduleControlsHide() }
                     )
 
-                    // Sources (streaming mode only)
-                    if (state.isStreamingMode) {
+                    // Sources (streaming mode only, but not for IPTV)
+                    if (state.isStreamingMode && !state.isIptv) {
                         ControlButton(
                             icon = Icons.Filled.Layers,
                             contentDescription = "Sources",
@@ -679,8 +687,8 @@ private fun PlayerControlsOverlay(
                         )
                     }
 
-                    // Episodes (series only)
-                    if (!state.isMovie) {
+                    // Episodes (series only, not IPTV)
+                    if (!state.isMovie && !state.isIptv) {
                         ControlButton(
                             icon = Icons.Filled.PlaylistPlay,
                             contentDescription = "Episodes",

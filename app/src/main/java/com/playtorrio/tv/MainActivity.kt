@@ -28,6 +28,7 @@ import com.playtorrio.tv.ui.screens.profile.ProfileSelectScreen
 import com.playtorrio.tv.ui.screens.detail.StremioDetailScreen
 import com.playtorrio.tv.ui.screens.music.MusicScreen
 import com.playtorrio.tv.ui.screens.audiobook.AudiobookScreen
+import com.playtorrio.tv.ui.screens.iptv.IptvScreen
 import com.playtorrio.tv.ui.screens.search.SearchScreen
 import com.playtorrio.tv.ui.screens.stremio.StremioCatalogScreen
 import com.playtorrio.tv.ui.theme.PlayTorrioTheme
@@ -98,6 +99,9 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("audiobooks") {
                         AudiobookScreen(navController = navController)
+                    }
+                    composable("iptv") {
+                        IptvScreen(navController = navController)
                     }
                     composable(
                         "detail/{mediaId}/{isMovie}",

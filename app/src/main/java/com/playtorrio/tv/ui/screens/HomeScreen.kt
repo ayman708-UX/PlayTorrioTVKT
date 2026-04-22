@@ -93,6 +93,7 @@ import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Person
@@ -140,6 +141,10 @@ private val NETWORKS = listOf(
     NetworkInfo(2222, "NAT GEO",      Color(0xFF996600), Color(0xFFFFCC00),  "https://gifsfornetworks.pages.dev/Logo%20Animation%202a%20National%20Geographic.gif"),
 )
 
+// Responsive sizing — multiplier applied to all hardcoded card dimensions on
+// the home screen so the layout adapts to the TV's reported screen width.
+private val LocalHomeCardScale = androidx.compose.runtime.compositionLocalOf { 1f }
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewModel()) {
@@ -147,6 +152,10 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val cardScale = run {
+        val sw = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+        (sw / 960f).coerceIn(0.65f, 1.0f)
+    }
 
     // Cancel trailer when leaving this screen
     DisposableEffect(Unit) {
@@ -177,6 +186,7 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
 
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalHomeCardScale provides cardScale) {
         val navFocusRequester = remember { FocusRequester() }
         // Set from inside the content branch; called by NavPill to drop focus into the active row.
         val exitNavToContent = remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -313,22 +323,29 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
                         modifier = Modifier.fillMaxWidth().weight(0.57f),
                         contentPadding = PaddingValues(top = 10.dp, bottom = 32.dp)
                     ) {
-                        // Networks row
+                        // Networks row — collapsed (zero-height) when focus has
+                        // moved off it so the hero backdrop has more breathing
+                        // room. The lazy item stays in place so all subsequent
+                        // row indices (and rowFocusRequesters) stay aligned.
                         item(key = "networks_row") {
-                            NetworkRow(
-                                networks = NETWORKS,
-                                logoUrlsById = state.networkLogos,
-                                initialFocusIndex = if (viewModel.lastFocusedRowIndex == 0) viewModel.lastFocusedItemIndex else 0,
-                                onNetworkClicked = { network, itemIndex ->
-                                    viewModel.saveFocusPosition(0, itemIndex)
-                                    navController.navigate("network/${network.id}")
-                                },
-                                onItemFocused = { itemIndex ->
-                                    viewModel.saveFocusPosition(0, itemIndex)
-                                },
-                                focusRequester = rowFocusRequesters[0],
-                                navFocusRequester = navFocusRequester
-                            )
+                            if (activeRowIndex == 0) {
+                                NetworkRow(
+                                    networks = NETWORKS,
+                                    logoUrlsById = state.networkLogos,
+                                    initialFocusIndex = if (viewModel.lastFocusedRowIndex == 0) viewModel.lastFocusedItemIndex else 0,
+                                    onNetworkClicked = { network, itemIndex ->
+                                        viewModel.saveFocusPosition(0, itemIndex)
+                                        navController.navigate("network/${network.id}")
+                                    },
+                                    onItemFocused = { itemIndex ->
+                                        viewModel.saveFocusPosition(0, itemIndex)
+                                    },
+                                    focusRequester = rowFocusRequesters[0],
+                                    navFocusRequester = navFocusRequester
+                                )
+                            } else {
+                                Spacer(Modifier.height(0.dp))
+                            }
                         }
 
                         // Continue Watching row (hidden when empty)
@@ -534,6 +551,7 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
                 }
             )
         }
+        } // CompositionLocalProvider(LocalHomeCardScale)
     }
 }
 
@@ -630,6 +648,13 @@ private fun NavPill(
                             label = "Audiobooks",
                             isActive = false,
                             onClicked = { navController.navigate("audiobooks") },
+                            onExitRight = onExitToContent,
+                        )
+                        NavPillItem(
+                            icon = Icons.Filled.LiveTv,
+                            label = "IPTV",
+                            isActive = false,
+                            onClicked = { navController.navigate("iptv") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
@@ -1031,11 +1056,12 @@ private fun AnimatedNetworkCard(
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val s = LocalHomeCardScale.current
 
     Box(
         modifier = modifier
-            .width(190.dp)
-            .height(105.dp)
+            .width((155.dp * s).coerceAtLeast(120.dp))
+            .height((86.dp * s).coerceAtLeast(68.dp))
     ) {
         Card(
             onClick = onClicked,
@@ -1199,10 +1225,11 @@ private fun MediaCard(
     focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val s = LocalHomeCardScale.current
 
     Box(
         modifier = Modifier
-            .width(250.dp)
+            .width((205.dp * s).coerceAtLeast(160.dp))
             .aspectRatio(16f / 9f)
     ) {
         Card(
@@ -1669,8 +1696,8 @@ private fun ContinueEditCard(
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(72.dp)
-            .height(82.dp)
+            .width((60.dp * LocalHomeCardScale.current).coerceAtLeast(48.dp))
+            .height((70.dp * LocalHomeCardScale.current).coerceAtLeast(54.dp))
             .focusRequester(focusRequester)
             .onFocusChanged {
                 focused = it.isFocused
@@ -1681,7 +1708,7 @@ private fun ContinueEditCard(
                 color = border,
                 shape = RoundedCornerShape(8.dp),
             ),
-        scale = CardDefaults.scale(focusedScale = 1.06f),
+        scale = CardDefaults.scale(focusedScale = 1f),
         colors = CardDefaults.colors(
             containerColor = when {
                 active -> Color(0xFFEF4444).copy(alpha = 0.18f)
@@ -1733,8 +1760,8 @@ private fun ContinueWatchingCard(
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(280.dp)
-            .height(82.dp)
+            .width((230.dp * LocalHomeCardScale.current).coerceAtLeast(180.dp))
+            .height((70.dp * LocalHomeCardScale.current).coerceAtLeast(54.dp))
             .focusRequester(focusRequester)
             .onFocusChanged {
                 focused = it.isFocused
@@ -1745,7 +1772,7 @@ private fun ContinueWatchingCard(
                 color = if (editMode) Color(0xFFEF4444) else ContinueAccent,
                 shape = RoundedCornerShape(8.dp),
             ),
-        scale = CardDefaults.scale(focusedScale = 1.04f),
+        scale = CardDefaults.scale(focusedScale = 1f),
         colors = CardDefaults.colors(
             containerColor = if (focused) ContinuePanelLight else ContinuePanel,
         ),

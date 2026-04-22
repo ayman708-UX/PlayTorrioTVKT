@@ -19,9 +19,22 @@ object TorrServerManager {
     private val lock = Object()
 
     val isRunning: Boolean get() {
-        val p = process
-        if (p == null) return false
-        return try { p.isAlive } catch (_: Exception) { false }
+        val p = process ?: return false
+        return isProcessAlive(p)
+    }
+
+    /**
+     * SDK-safe alive check. [Process.isAlive] is API 26+ and crashes with
+     * NoSuchMethodError on older Fire Sticks (API 25 / Android 7.1). exitValue()
+     * works on every API level: throws IllegalThreadStateException while running.
+     */
+    private fun isProcessAlive(p: Process): Boolean = try {
+        p.exitValue()
+        false
+    } catch (_: IllegalThreadStateException) {
+        true
+    } catch (_: Throwable) {
+        false
     }
 
     fun start(context: Context, listenPort: Int = DEFAULT_PORT): Boolean {
@@ -70,7 +83,7 @@ object TorrServerManager {
                 pb.redirectErrorStream(true)
                 val proc = pb.start()
                 process = proc
-                Log.d(TAG, "Process started, alive=${proc.isAlive}")
+                Log.d(TAG, "Process started, alive=${isProcessAlive(proc)}")
 
                 // Log output in background thread
                 Thread {
@@ -83,7 +96,7 @@ object TorrServerManager {
                     } catch (e: Exception) {
                         Log.e(TAG, "Output reader error: ${e.message}")
                     }
-                    Log.d(TAG, "Output reader thread ended, process alive=${try { proc.isAlive } catch (_: Exception) { false }}")
+                    Log.d(TAG, "Output reader thread ended, process alive=${isProcessAlive(proc)}")
                 }.apply { isDaemon = true }.start()
 
                 true

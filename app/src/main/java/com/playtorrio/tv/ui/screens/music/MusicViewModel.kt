@@ -13,6 +13,9 @@ import com.playtorrio.tv.data.music.DeezerTrack
 import com.playtorrio.tv.data.music.MusicAudioExtractor
 import com.playtorrio.tv.data.trailer.TrailerPlaybackSource
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -225,13 +228,18 @@ class MusicViewModel : ViewModel() {
         if (pl.trackIds.contains(tid)) return
         lists[playlistIndex] = pl.copy(trackIds = pl.trackIds + tid)
         savePlaylists(lists)
+        val returnDialog = if (_ui.value.currentTrack != null) MusicDialog.PLAYER else MusicDialog.NONE
+        _ui.value = _ui.value.copy(playlists = lists, dialog = returnDialog, pendingPlaylistTrack = null)
         // Refresh playlist detail tracks if viewing this playlist
         val viewIdx = _ui.value.viewingPlaylistIndex
-        val newTracks = if (viewIdx == playlistIndex) {
-            lists[playlistIndex].trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }
-        } else _ui.value.viewingPlaylistTracks
-        val returnDialog = if (_ui.value.currentTrack != null) MusicDialog.PLAYER else MusicDialog.NONE
-        _ui.value = _ui.value.copy(playlists = lists, dialog = returnDialog, pendingPlaylistTrack = null, viewingPlaylistTracks = newTracks)
+        if (viewIdx == playlistIndex) {
+            viewModelScope.launch {
+                val tracks = resolveTrackIds(lists[playlistIndex].trackIds)
+                if (_ui.value.viewingPlaylistIndex == playlistIndex) {
+                    _ui.value = _ui.value.copy(viewingPlaylistTracks = tracks)
+                }
+            }
+        }
     }
 
     fun removeTrackFromPlaylist(playlistIndex: Int, trackId: Long) {
@@ -240,8 +248,10 @@ class MusicViewModel : ViewModel() {
         val pl = lists[playlistIndex]
         lists[playlistIndex] = pl.copy(trackIds = pl.trackIds.filter { it != trackId.toString() })
         savePlaylists(lists)
-        val tracks = lists[playlistIndex].trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }
-        _ui.value = _ui.value.copy(playlists = lists, viewingPlaylistTracks = tracks)
+        _ui.value = _ui.value.copy(
+            playlists = lists,
+            viewingPlaylistTracks = _ui.value.viewingPlaylistTracks.filter { it.id != trackId }
+        )
     }
 
     fun deletePlaylist(index: Int) {
@@ -254,24 +264,56 @@ class MusicViewModel : ViewModel() {
 
     fun openPlaylistDetail(index: Int) {
         val pl = _ui.value.playlists.getOrNull(index) ?: return
-        val tracks = pl.trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }
-        _ui.value = _ui.value.copy(currentView = MusicView.PLAYLIST_DETAIL, viewingPlaylistIndex = index, viewingPlaylistTracks = tracks)
+        // Show what we have from cache immediately, then fetch the rest in background.
+        val cached = pl.trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }
+        _ui.value = _ui.value.copy(
+            currentView = MusicView.PLAYLIST_DETAIL,
+            viewingPlaylistIndex = index,
+            viewingPlaylistTracks = cached
+        )
+        viewModelScope.launch {
+            val tracks = resolveTrackIds(pl.trackIds)
+            if (_ui.value.viewingPlaylistIndex == index) {
+                _ui.value = _ui.value.copy(viewingPlaylistTracks = tracks)
+            }
+        }
     }
 
     // ── Playlist playback ────────────────────────────────────────────────────
 
     fun playAllPlaylist(index: Int) {
         val pl = _ui.value.playlists.getOrNull(index) ?: return
-        val tracks = pl.trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }
-        if (tracks.isEmpty()) return
-        playTrack(tracks[0], tracks, 0)
+        viewModelScope.launch {
+            val tracks = resolveTrackIds(pl.trackIds)
+            if (tracks.isEmpty()) return@launch
+            playTrack(tracks[0], tracks, 0)
+        }
     }
 
     fun shufflePlaylist(index: Int) {
         val pl = _ui.value.playlists.getOrNull(index) ?: return
-        val tracks = pl.trackIds.mapNotNull { trackCache[it.toLongOrNull() ?: 0] }.shuffled()
-        if (tracks.isEmpty()) return
-        playTrack(tracks[0], tracks, 0)
+        viewModelScope.launch {
+            val tracks = resolveTrackIds(pl.trackIds).shuffled()
+            if (tracks.isEmpty()) return@launch
+            playTrack(tracks[0], tracks, 0)
+        }
+    }
+
+    /** Resolve a list of stringified track ids into [DeezerTrack]s. Uses the
+     *  in-memory cache first and falls back to the Deezer API for any tracks
+     *  that weren't loaded this session (e.g. after app restart). Missing
+     *  tracks are dropped. */
+    private suspend fun resolveTrackIds(ids: List<String>): List<DeezerTrack> {
+        if (ids.isEmpty()) return emptyList()
+        val longIds = ids.mapNotNull { it.toLongOrNull() }
+        val missing = longIds.filter { trackCache[it] == null }
+        if (missing.isNotEmpty()) {
+            val fetched = coroutineScope {
+                missing.map { id -> async { DeezerService.getTrack(id) } }.awaitAll()
+            }
+            fetched.filterNotNull().forEach { trackCache[it.id] = it }
+        }
+        return longIds.mapNotNull { trackCache[it] }
     }
 
     // ── Player ───────────────────────────────────────────────────────────────
@@ -325,7 +367,12 @@ class MusicViewModel : ViewModel() {
 
     private fun refreshSavedTracks() {
         val ids = _ui.value.savedTrackIds
+        // Show whatever we have from cache instantly, then fetch the rest.
         _ui.value = _ui.value.copy(savedTracks = ids.mapNotNull { trackCache[it] })
+        viewModelScope.launch {
+            val tracks = resolveTrackIds(ids.map { it.toString() })
+            _ui.value = _ui.value.copy(savedTracks = tracks)
+        }
     }
 
     private fun loadSavedData() {

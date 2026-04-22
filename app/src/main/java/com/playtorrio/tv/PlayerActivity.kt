@@ -81,7 +81,8 @@ class PlayerActivity : ComponentActivity() {
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
                 episodeTitle = episodeTitle,
-                tmdbId = tmdbId
+                tmdbId = tmdbId,
+                isIptv = intent.getBooleanExtra("isIptv", false),
             )
         } else {
             // Torrent mode — magnet URI via TorrServer

@@ -88,6 +88,10 @@ data class PlayerUiState(
     // Loading / connection
     val isConnecting: Boolean = true,
     val connectionStatus: String = "Starting TorrServer…",
+    /** True while IPTV stall recovery is in flight — keeps the video surface
+     *  visible (no black LoadingOverlay) and shows just a buffering spinner. */
+    val isReconnecting: Boolean = false,
+    val reconnectStatus: String = "",
     // Playback
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
@@ -135,6 +139,8 @@ data class PlayerUiState(
     val currentSourceIndex: Int = 0,
     val showSourcesPanel: Boolean = false,
     val isSwitchingSource: Boolean = false,
+    /** True for direct IPTV (Xtream-Codes) streams — disables source fallback / picker. */
+    val isIptv: Boolean = false,
     // Episodes (for series)
     val episodes: List<com.playtorrio.tv.data.model.Episode> = emptyList(),
     val isLoadingEpisodes: Boolean = false,
@@ -175,6 +181,35 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var streamRetryJob: Job? = null
     private var startupRetryCount: Int = 0
     private val maxStartupRetries: Int = 4
+
+    // ── IPTV stall watchdog & tiered recovery ────────────────────────────────
+    // Live IPTV streams frequently freeze without emitting onPlayerError —
+    // the socket dies, the HLS chunk loader hangs, or the upstream just stops
+    // serving segments. We poll player state every second and trigger staged
+    // recovery when buffering exceeds a threshold or the playhead stops moving.
+    private var iptvWatchdogJob: Job? = null
+    private var iptvRetryAttempt: Int = 0
+    private val iptvMaxRetries: Int = 8
+    /** Wallclock timestamp (ms) when STATE_BUFFERING began. 0 = not buffering. */
+    private var iptvBufferingSinceMs: Long = 0L
+    /** Last observed currentPosition while playing. */
+    private var iptvLastPositionMs: Long = -1L
+    /** Wallclock timestamp (ms) when iptvLastPositionMs was last updated. */
+    private var iptvLastPositionAt: Long = 0L
+    /** Wallclock timestamp (ms) when the last successful progress was seen. Used by detector 3. */
+    private var iptvLastHealthyAt: Long = 0L
+    /** Wallclock timestamp (ms) when the current healthy-playback streak began. 0 = no active streak. */
+    private var iptvHealthyStreakStartMs: Long = 0L
+    /** Buffering longer than this with playWhenReady=true → stall. */
+    private val iptvBufferingStallMs: Long = 6_000L
+    /** Position not advancing for this long while READY+isPlaying → frozen. */
+    private val iptvFrozenPositionMs: Long = 5_000L
+    /** Reset retry counter after this much continuous healthy playback. */
+    private val iptvHealthyResetMs: Long = 6_000L
+    /** Unix-time (ms) of the playhead at the moment recovery started. Used to
+     *  resume at the same wallclock position post-recovery so the user doesn't
+     *  miss the seconds spent reconnecting. C.TIME_UNSET = no saved position. */
+    private var iptvSavedUnixMs: Long = C.TIME_UNSET
 
     // ── Continue-watching context (set once by PlayerActivity from intent extras) ──
     private var currentMagnetUri: String? = null
@@ -236,6 +271,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun tryNextSource(failedError: PlaybackException) {
         val state = _uiState.value
+        // IPTV streams have no fallback sources — surface the error directly.
+        if (state.isIptv) {
+            _uiState.update {
+                it.copy(
+                    isConnecting = false,
+                    error = "Stream failed: ${failedError.errorCodeName}",
+                )
+            }
+            return
+        }
         failedSourceIndices.add(state.currentSourceIndex)
         Log.i(TAG, "tryNextSource: failed=${state.currentSourceIndex}, failedSet=$failedSourceIndices, tmdbId=${state.tmdbId} s=${state.seasonNumber} e=${state.episodeNumber}")
 
@@ -992,6 +1037,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         statsJob?.cancel()
         seekOverlayHideJob?.cancel()
         streamRetryJob?.cancel()
+        iptvWatchdogJob?.cancel()
         player?.release()
         player = null
 
@@ -1107,7 +1153,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         seasonNumber: Int?,
         episodeNumber: Int?,
         episodeTitle: String?,
-        tmdbId: Int
+        tmdbId: Int,
+        isIptv: Boolean = false,
     ) {
         if (player != null) return
         failedSourceIndices.clear()
@@ -1128,39 +1175,43 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 isConnecting = true,
                 connectionStatus = "Loading stream…",
                 isStreamingMode = true,
-                currentSourceIndex = sourceIndex
+                isIptv = isIptv,
+                currentSourceIndex = sourceIndex,
             )
         }
 
         val context = getApplication<Application>()
         viewModelScope.launch {
-            // Fetch subtitles in background
-            launch {
-                val subs = SubtitleService.fetchSubtitles(
-                    tmdbId = tmdbId,
-                    season = seasonNumber,
-                    episode = episodeNumber
-                )
-                _uiState.update { it.copy(externalSubtitles = subs) }
-                updateSubtitleTrackList()
+            // IPTV streams have no TMDB context — skip subtitle/skip-segment/episode fetches.
+            if (!isIptv) {
+                launch {
+                    val subs = SubtitleService.fetchSubtitles(
+                        tmdbId = tmdbId,
+                        season = seasonNumber,
+                        episode = episodeNumber
+                    )
+                    _uiState.update { it.copy(externalSubtitles = subs) }
+                    updateSubtitleTrackList()
 
-                // Also fetch from Stremio subtitle addons
-                fetchStremioSubtitles(tmdbId, isMovie, seasonNumber, episodeNumber)
-            }
+                    // Also fetch from Stremio subtitle addons
+                    fetchStremioSubtitles(tmdbId, isMovie, seasonNumber, episodeNumber)
+                }
 
-            // Fetch skip segments in background
-            launch {
-                val segments = SkipSegmentService.fetchSegments(tmdbId, isMovie, seasonNumber, episodeNumber)
-                _uiState.update { it.copy(skipSegments = segments) }
-                Log.i(TAG, "Skip segments loaded (streaming): ${segments.size}")
-            }
-            // Eagerly load the season for series so the Next Episode button can
-            // appear at end-of-runtime without the user opening the panel first.
-            if (!isMovie && seasonNumber != null) {
-                launch { loadEpisodesForCurrentSeries() }
+                launch {
+                    val segments = SkipSegmentService.fetchSegments(tmdbId, isMovie, seasonNumber, episodeNumber)
+                    _uiState.update { it.copy(skipSegments = segments) }
+                    Log.i(TAG, "Skip segments loaded (streaming): ${segments.size}")
+                }
+                if (!isMovie && seasonNumber != null) {
+                    launch { loadEpisodesForCurrentSeries() }
+                }
             }
             withContext(Dispatchers.Main) {
-                createStreamingPlayer(streamUrl, referer)
+                if (isIptv) {
+                    createIptvPlayer(streamUrl, referer)
+                } else {
+                    createStreamingPlayer(streamUrl, referer)
+                }
             }
         }
     }
@@ -1254,6 +1305,431 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         startPositionUpdater()
         scheduleControlsHide()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  IPTV player path — dedicated builder with stall watchdog + tiered
+    //  recovery. Used whenever isIptv=true. Live IPTV portals are flaky:
+    //  segments stop arriving, sockets die silently, and ExoPlayer often
+    //  doesn't surface a PlaybackException for these freezes. We watch
+    //  player state ourselves and escalate recovery in stages.
+    // ─────────────────────────────────────────────────────────────────────────
+    private fun createIptvPlayer(streamUrl: String, referer: String) {
+        val context = getApplication<Application>()
+        resetStartupRetryState()
+        stopIptvWatchdog()
+        iptvRetryAttempt = 0
+        currentReferer = referer
+        currentStreamUrl = streamUrl
+
+        val headers = buildMap<String, String> {
+            if (referer.isNotBlank()) {
+                put("Referer", referer)
+                val origin = try {
+                    val uri = android.net.Uri.parse(referer)
+                    "${uri.scheme}://${uri.host}"
+                } catch (_: Exception) { referer.trimEnd('/') }
+                put("Origin", origin)
+            }
+            put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+        }
+
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setDefaultRequestProperties(headers)
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(8_000)
+            .setAllowCrossProtocolRedirects(true)
+
+        // Custom error policy: be very patient with transient HTTP errors that
+        // are typical of overloaded IPTV portals (502/503/504, socket resets).
+        val errorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = Int.MAX_VALUE
+            override fun getRetryDelayMsFor(
+                loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
+            ): Long {
+                // Exponential-ish backoff capped at 5s so we keep retrying
+                // chunk loads aggressively but don't hammer a dead portal.
+                val attempt = loadErrorInfo.errorCount.coerceAtLeast(1)
+                return (1_000L * attempt).coerceAtMost(5_000L)
+            }
+        }
+
+        val msFactory = DefaultMediaSourceFactory(httpFactory)
+            .setLoadErrorHandlingPolicy(errorPolicy)
+
+        // Live-tuned buffer: small + reactive. Big buffers hide stalls and
+        // delay our watchdog's reaction.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                4_000,    // min buffer
+                30_000,   // max buffer
+                1_500,    // playback start threshold
+                3_000     // rebuffer threshold
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+        val exo = ExoPlayer.Builder(context)
+            .setRenderersFactory(renderersFactory)
+            .setMediaSourceFactory(msFactory)
+            .setLoadControl(loadControl)
+            .build()
+        player = exo
+
+        val audioAttrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+        exo.setAudioAttributes(audioAttrs, false)
+        exo.volume = 1.0f
+
+        Log.i(TAG, "Creating IPTV player for $streamUrl")
+        exo.setMediaItem(MediaItem.fromUri(streamUrl))
+        exo.prepare()
+        exo.playWhenReady = true
+
+        exo.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                _uiState.update {
+                    it.copy(
+                        isBuffering = state == Player.STATE_BUFFERING,
+                        isPlaying = exo.isPlaying,
+                        isConnecting = if (state == Player.STATE_READY) false else it.isConnecting
+                    )
+                }
+                when (state) {
+                    Player.STATE_BUFFERING -> {
+                        if (iptvBufferingSinceMs == 0L) {
+                            iptvBufferingSinceMs = System.currentTimeMillis()
+                        }
+                    }
+                    Player.STATE_READY -> {
+                        iptvBufferingSinceMs = 0L
+                        iptvLastHealthyAt = System.currentTimeMillis()
+                        // Try to restore the wallclock position we were at
+                        // before recovery, so the user doesn't miss the
+                        // seconds spent reconnecting. Falls back silently if
+                        // the stream has no PROGRAM-DATE-TIME / DVR window.
+                        tryRestoreIptvPosition(exo)
+                        _uiState.update {
+                            it.copy(
+                                duration = exo.duration.coerceAtLeast(0),
+                                isConnecting = false,
+                                isReconnecting = false,
+                                reconnectStatus = ""
+                            )
+                        }
+                        updateTracks()
+                        autoSelectPendingSubtitle()
+                    }
+                    Player.STATE_ENDED -> {
+                        // Live streams should never END normally — treat as a stall.
+                        Log.w(TAG, "IPTV stream ended unexpectedly — recovering")
+                        recoverIptvStream("stream-ended")
+                    }
+                    else -> { /* IDLE handled by error/recovery path */ }
+                }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                _uiState.update { it.copy(isPlaying = playing) }
+                if (!playing && exo.playbackState == Player.STATE_READY) {
+                    _uiState.update { it.copy(showPauseOverlay = true, showControls = false) }
+                }
+            }
+
+            override fun onTracksChanged(tracks: Tracks) { updateTracks() }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.w(TAG, "IPTV playback error: ${error.errorCodeName}", error)
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    // Standard Media3 fix: jump to live edge and re-prepare.
+                    Log.i(TAG, "BEHIND_LIVE_WINDOW — seeking to live edge")
+                    try {
+                        exo.seekToDefaultPosition()
+                        exo.prepare()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "BEHIND_LIVE_WINDOW recovery failed: ${e.message}")
+                        recoverIptvStream("behind-live-window-failed")
+                    }
+                    return
+                }
+                recoverIptvStream("error:${error.errorCodeName}")
+            }
+        })
+
+        startIptvWatchdog(exo)
+        startPositionUpdater()
+        scheduleControlsHide()
+    }
+
+    private fun startIptvWatchdog(exo: ExoPlayer) {
+        stopIptvWatchdog()
+        iptvLastPositionMs = -1L
+        iptvLastPositionAt = System.currentTimeMillis()
+        iptvLastHealthyAt = System.currentTimeMillis()
+        iptvHealthyStreakStartMs = 0L
+        iptvBufferingSinceMs = 0L
+
+        iptvWatchdogJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000L)
+                val current = player ?: return@launch
+                if (current !== exo) return@launch  // player rebuilt — old watchdog dies
+                if (!_uiState.value.isIptv) return@launch
+
+                val now = System.currentTimeMillis()
+                val state = current.playbackState
+                val pos = current.currentPosition
+
+                // ── Position tracking + healthy streak ────────────────────
+                if (state == Player.STATE_READY && current.isPlaying) {
+                    if (pos != iptvLastPositionMs) {
+                        iptvLastPositionMs = pos
+                        iptvLastPositionAt = now
+                        iptvLastHealthyAt = now
+                        if (iptvHealthyStreakStartMs == 0L) iptvHealthyStreakStartMs = now
+                        if (iptvRetryAttempt > 0 &&
+                            (now - iptvHealthyStreakStartMs) >= iptvHealthyResetMs
+                        ) {
+                            Log.i(TAG, "IPTV healthy streak — resetting retry counter (was $iptvRetryAttempt)")
+                            iptvRetryAttempt = 0
+                        }
+                    } else {
+                        iptvHealthyStreakStartMs = 0L
+                    }
+                } else {
+                    iptvHealthyStreakStartMs = 0L
+                }
+
+                // ── Stall detector 1: stuck buffering ──────────────────────
+                if (state == Player.STATE_BUFFERING && current.playWhenReady && iptvBufferingSinceMs > 0L) {
+                    val bufferedFor = now - iptvBufferingSinceMs
+                    if (bufferedFor >= iptvBufferingStallMs) {
+                        Log.w(TAG, "IPTV buffering stall detected (${bufferedFor}ms) — recovering")
+                        iptvBufferingSinceMs = 0L
+                        recoverIptvStream("buffering-stall")
+                        continue
+                    }
+                }
+
+                // ── Stall detector 2: STATE_READY + isPlaying but position frozen ─────
+                // Gated on iptvLastPositionMs >= 0L so we don't fire before the first
+                // real position tick — avoids false positives during initial buffering.
+                if (state == Player.STATE_READY && current.isPlaying && iptvLastPositionMs >= 0L) {
+                    val frozenFor = now - iptvLastPositionAt
+                    if (frozenFor >= iptvFrozenPositionMs) {
+                        Log.w(TAG, "IPTV position frozen for ${frozenFor}ms at $pos — recovering")
+                        iptvLastPositionAt = now
+                        recoverIptvStream("position-frozen")
+                        continue
+                    }
+                }
+
+                // ── Stall detector 3: READY + playWhenReady but not playing ────────
+                // Catches audio focus loss, surface theft, renderer stalls — cases
+                // where ExoPlayer reports READY but isPlaying stays false.
+                if (state == Player.STATE_READY && current.playWhenReady && !current.isPlaying) {
+                    val stalledFor = now - iptvLastHealthyAt
+                    if (stalledFor >= iptvFrozenPositionMs) {
+                        Log.w(TAG, "IPTV ready+playWhenReady but not playing for ${stalledFor}ms — recovering")
+                        iptvLastHealthyAt = now
+                        recoverIptvStream("ready-not-playing")
+                        continue
+                    }
+                }
+            }
+        }
+    }
+
+    private var lastIptvRecoveryAt: Long = 0L
+
+    private fun stopIptvWatchdog() {
+        iptvWatchdogJob?.cancel()
+        iptvWatchdogJob = null
+    }
+
+    /**
+     * After an IPTV recovery completes (player reaches STATE_READY), try to
+     * seek back to the wallclock position the user was at when the stall hit.
+     * This avoids losing the seconds we spent reconnecting.
+     *
+     * Mechanics: we saved a unix timestamp before recovery (windowStartTimeMs
+     * + currentPosition). The new live window has its own windowStartTimeMs.
+     * The position within the new window that corresponds to our saved unix
+     * time is `savedUnix - newWindow.windowStartTimeMs`. If that value falls
+     * within the new window's duration, we seek there. Otherwise we leave the
+     * player at its default (live edge).
+     *
+     * Only works when the upstream emits PROGRAM-DATE-TIME (HLS) or has a
+     * known availabilityStartTime (DASH). Most public IPTV portals do.
+     */
+    private fun tryRestoreIptvPosition(exo: ExoPlayer) {
+        val savedUnix = iptvSavedUnixMs
+        if (savedUnix == C.TIME_UNSET) return
+        // One-shot: clear so we don't re-seek on subsequent STATE_READY events
+        // (e.g. after the seek itself triggers BUFFERING → READY).
+        iptvSavedUnixMs = C.TIME_UNSET
+        try {
+            val timeline = exo.currentTimeline
+            if (timeline.isEmpty) return
+            val win = timeline.getWindow(exo.currentMediaItemIndex, androidx.media3.common.Timeline.Window())
+            val newStart = win.windowStartTimeMs
+            if (newStart == C.TIME_UNSET) return
+            val target = savedUnix - newStart
+            val winDur = win.durationMs
+            if (winDur == C.TIME_UNSET || winDur <= 0L) return
+            // Clamp inside window with a small safety margin from the live edge
+            // so we don't immediately bump into BehindLiveWindowException at the
+            // tail or trigger another recovery at the head.
+            val safeTarget = target.coerceIn(2_000L, (winDur - 2_000L).coerceAtLeast(2_000L))
+            // Only resume if the saved position actually falls inside the new
+            // window — if recovery took longer than the DVR window, our spot
+            // has scrolled out and the best we can do is the live edge.
+            if (target < 0L || target > winDur) {
+                Log.i(TAG, "IPTV restore skipped: saved offset=$target outside window 0..$winDur")
+                return
+            }
+            Log.i(TAG, "IPTV restore: seeking to ${safeTarget}ms (savedUnix=$savedUnix, newStart=$newStart, winDur=$winDur)")
+            exo.seekTo(safeTarget)
+        } catch (e: Exception) {
+            Log.w(TAG, "IPTV restore failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Tiered IPTV recovery:
+     *   Attempt 1-2: seekToDefaultPosition() + prepare()  — cheapest, fixes
+     *               most live-edge / dropped-segment hiccups.
+     *   Attempt 3-4: stop() + clearMediaItems() + setMediaItem() + prepare()
+     *               — fresh MediaSource, new HTTP connections.
+     *   Attempt 5+:  release() and rebuild via createIptvPlayer() — what
+     *               "exit and reopen the channel" does manually.
+     *   After iptvMaxRetries, surface error.
+     */
+    private fun recoverIptvStream(reason: String) {
+        val exo = player ?: return
+        if (!_uiState.value.isIptv) return
+        val url = currentStreamUrl ?: return
+        val referer = currentReferer
+
+        val now = System.currentTimeMillis()
+        // Throttle: never run two recoveries within 1.5s of each other.
+        if (now - lastIptvRecoveryAt < 1_500L) {
+            Log.i(TAG, "IPTV recovery throttled (reason=$reason)")
+            return
+        }
+        lastIptvRecoveryAt = now
+
+        if (iptvRetryAttempt >= iptvMaxRetries) {
+            Log.e(TAG, "IPTV recovery exhausted after $iptvRetryAttempt attempts (reason=$reason)")
+            stopIptvWatchdog()
+            _uiState.update {
+                it.copy(
+                    isConnecting = false,
+                    isReconnecting = false,
+                    reconnectStatus = "",
+                    error = "Stream unavailable. Please try another source."
+                )
+            }
+            return
+        }
+
+        iptvRetryAttempt += 1
+        val attempt = iptvRetryAttempt
+
+        // Capture the wallclock position we're currently at so we can resume
+        // exactly here after recovery (instead of jumping forward to the new
+        // live edge and losing the seconds spent reconnecting). Only works
+        // for streams that expose a windowStartTimeMs (HLS with EXT-X-PROGRAM-
+        // DATE-TIME or DASH with availabilityStartTime). For others this
+        // stays C.TIME_UNSET and we fall back to the live edge.
+        iptvSavedUnixMs = try {
+            val timeline = exo.currentTimeline
+            if (!timeline.isEmpty) {
+                val win = timeline.getWindow(exo.currentMediaItemIndex, androidx.media3.common.Timeline.Window())
+                if (win.windowStartTimeMs != C.TIME_UNSET) {
+                    val pos = exo.currentPosition.coerceAtLeast(0L)
+                    win.windowStartTimeMs + pos
+                } else C.TIME_UNSET
+            } else C.TIME_UNSET
+        } catch (_: Exception) { C.TIME_UNSET }
+        if (iptvSavedUnixMs != C.TIME_UNSET) {
+            Log.i(TAG, "IPTV recovery saved unix=$iptvSavedUnixMs (will try to resume)")
+        }
+
+        // Exponential-ish backoff with a cap.
+        val backoffMs = when (attempt) {
+            1 -> 500L
+            2 -> 1_000L
+            3 -> 2_000L
+            4 -> 3_000L
+            5 -> 4_000L
+            6 -> 6_000L
+            else -> 8_000L
+        }
+
+        _uiState.update {
+            it.copy(
+                isReconnecting = true,
+                reconnectStatus = "Reconnecting… ($attempt/$iptvMaxRetries)"
+            )
+        }
+        Log.w(TAG, "IPTV recover #$attempt (reason=$reason, backoff=${backoffMs}ms)")
+
+        viewModelScope.launch {
+            delay(backoffMs)
+            // Player may have been rebuilt or released during the delay — always
+            // bail if the instance changed; the new player has its own watchdog.
+            val cur = player ?: return@launch
+            if (cur !== exo) return@launch
+            if (!_uiState.value.isIptv) return@launch
+
+            // Reset trackers BEFORE touching the player so a watchdog tick
+            // racing the listener can't trigger another recovery on stale data.
+            iptvBufferingSinceMs = 0L
+            iptvLastPositionMs = -1L
+            iptvLastPositionAt = System.currentTimeMillis()
+            iptvHealthyStreakStartMs = 0L
+
+            try {
+                when {
+                    attempt <= 2 -> {
+                        // Tier 1: seek to live edge + re-prepare.
+                        Log.i(TAG, "IPTV recover tier 1: seekToDefault + prepare")
+                        cur.seekToDefaultPosition()
+                        cur.prepare()
+                        cur.playWhenReady = true
+                    }
+                    attempt <= 4 -> {
+                        // Tier 2: full re-prepare with fresh MediaItem.
+                        Log.i(TAG, "IPTV recover tier 2: full re-prepare")
+                        cur.stop()
+                        cur.clearMediaItems()
+                        cur.setMediaItem(MediaItem.fromUri(url))
+                        cur.prepare()
+                        cur.playWhenReady = true
+                    }
+                    else -> {
+                        // Tier 3: nuke and rebuild player from scratch.
+                        Log.i(TAG, "IPTV recover tier 3: rebuild player")
+                        stopIptvWatchdog()
+                        try { cur.release() } catch (_: Exception) {}
+                        if (player === cur) player = null
+                        // Preserve the current attempt counter across rebuild
+                        // so we don't loop forever if rebuild also stalls.
+                        val savedAttempt = iptvRetryAttempt
+                        createIptvPlayer(url, referer)
+                        iptvRetryAttempt = savedAttempt
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "IPTV recover attempt $attempt threw: ${e.message}")
+            }
+        }
     }
 
     fun showSourcesPanel() {

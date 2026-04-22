@@ -142,6 +142,22 @@ object DeezerService {
         null
     }
 
+    /** Fetch a single track by Deezer track id. Used to rehydrate playlists/saved
+     *  tracks after app restart when the in-memory cache is empty. */
+    suspend fun getTrack(id: Long): DeezerTrack? = withContext(Dispatchers.IO) {
+        repeat(MAX_RETRIES) { attempt ->
+            try {
+                val body = get("$BASE/track/$id")
+                val track = gson.fromJson(body, DeezerTrack::class.java)
+                if (track != null && track.id != 0L) return@withContext track
+            } catch (e: Exception) {
+                Log.e(TAG, "Track $id attempt ${attempt + 1} failed: ${e.message}")
+            }
+            if (attempt < MAX_RETRIES - 1) kotlinx.coroutines.delay(RETRY_DELAY_MS)
+        }
+        null
+    }
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "PlayTorrioTV/1.0")

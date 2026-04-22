@@ -144,3 +144,6 @@ See [LICENSE](LICENSE).
 ---
 
 ### One more time — if you use this app, **star the repo**. It actually helps. ⭐
+
+
+<!-- Fix #1 -->

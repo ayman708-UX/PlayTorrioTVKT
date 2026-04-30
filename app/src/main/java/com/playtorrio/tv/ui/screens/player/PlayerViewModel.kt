@@ -24,6 +24,8 @@ import com.playtorrio.tv.data.streaming.StreamExtractorService
 import com.playtorrio.tv.data.skip.SkipSegment
 import com.playtorrio.tv.data.skip.SkipSegmentService
 import com.playtorrio.tv.data.subtitle.ExternalSubtitle
+import com.playtorrio.tv.data.subtitle.SubtitleCue
+import com.playtorrio.tv.data.subtitle.SubtitleCueParser
 import com.playtorrio.tv.data.subtitle.SubtitleService
 import com.playtorrio.tv.data.stremio.StremioAddonRepository
 import com.playtorrio.tv.data.stremio.StremioService
@@ -53,6 +55,31 @@ data class AudioTrackInfo(
     val sampleRate: Int?,
     val isSelected: Boolean
 )
+
+data class VideoTrackInfo(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val width: Int?,
+    val height: Int?,
+    val bitrate: Int?,
+    val frameRate: Float?,
+    val codec: String?,
+    val isSelected: Boolean
+) {
+    /** Human label e.g. "1080p" or "720p" — falls back to bitrate / index. */
+    fun displayName(): String = when {
+        height != null && height > 0 -> "${height}p"
+        bitrate != null && bitrate > 0 -> "${bitrate / 1000} kbps"
+        else -> "Track ${trackIndex + 1}"
+    }
+
+    fun metadata(): String = listOfNotNull(
+        width?.let { w -> height?.let { h -> "${w}\u00d7${h}" } },
+        bitrate?.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+        frameRate?.takeIf { it > 0f }?.let { "%.0f fps".format(it) },
+        codec,
+    ).joinToString(" \u2022 ")
+}
 
 data class SubtitleTrackInfo(
     val id: String,
@@ -120,11 +147,20 @@ data class PlayerUiState(
     val audioTracks: List<AudioTrackInfo> = emptyList(),
     val subtitleTracks: List<SubtitleTrackInfo> = emptyList(),
     val externalSubtitles: List<ExternalSubtitle> = emptyList(),
+    val videoTracks: List<VideoTrackInfo> = emptyList(),
+    /** True when ExoPlayer is free to adapt; false when user/auto-highest pinned a variant. */
+    val isQualityAuto: Boolean = true,
     // Aspect
     val aspectMode: AspectMode = AspectMode.FIT,
     val showAspectIndicator: Boolean = false,
     // Subtitle style
     val subtitleStyle: SubtitleStyleSettings = SubtitleStyleSettings(),
+    /** Cues of the currently active external subtitle (rendered by Compose
+     *  overlay so subtitle delay can be applied instantly). */
+    val customSubtitleCues: List<SubtitleCue> = emptyList(),
+    val customSubtitleLabel: String? = null,
+    val customSubtitleSourceUrl: String? = null,
+    val customSubtitleLoading: Boolean = false,
     // Skip segments
     val skipSegments: List<SkipSegment> = emptyList(),
     val activeSkipSegment: SkipSegment? = null,
@@ -133,6 +169,7 @@ data class PlayerUiState(
     val showPauseOverlay: Boolean = false,
     val showSubtitleOverlay: Boolean = false,
     val showAudioOverlay: Boolean = false,
+    val showQualityOverlay: Boolean = false,
     val showSubtitleStylePanel: Boolean = false,
     // Streaming mode
     val isStreamingMode: Boolean = false,
@@ -171,8 +208,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     var player: ExoPlayer? = null; private set
     private var currentStreamUrl: String? = null
+    /** Track which stream URL we already auto-pinned highest quality for. */
+    private var autoQualityAppliedForUrl: String? = null
     private val addedExternalSubConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
     private val addedExternalSubLabels = mutableMapOf<String, String>() // url -> label
+    /** Original (un-shifted) external subtitle URL keyed by its proxy URL — needed
+     *  to rebuild SubtitleConfigurations when the delay changes. */
+    private val externalSubOriginalUrls = mutableMapOf<String, String>() // proxyUrl -> originalUrl
+    private val externalSubMimes = mutableMapOf<String, String>() // originalUrl -> "srt"|"vtt"
     private var pendingSubtitleLabel: String? = null // auto-select after reload
     private var positionJob: Job? = null
     private var controlsHideJob: Job? = null
@@ -254,18 +297,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         streamRetryJob = null
     }
 
-    /** Source priority order matching StreamingSplash. */
-    private val sourcePriorityOrder = listOf(8, 3, 2)
-    private val orderedSourceIndices: List<Int> by lazy {
-        buildList {
-            sourcePriorityOrder.forEach { idx ->
-                StreamExtractorService.SOURCES.find { it.index == idx }?.let { add(idx) }
+    /** Source priority order matching StreamingSplash; reads user setting each time. */
+    private val sourcePriorityOrder: List<Int>
+        get() = AppPreferences.streamingSourceOrder
+    private val orderedSourceIndices: List<Int>
+        get() {
+            val priority = sourcePriorityOrder
+            return buildList {
+                priority.forEach { idx ->
+                    StreamExtractorService.SOURCES.find { it.index == idx }?.let { add(idx) }
+                }
+                StreamExtractorService.SOURCES
+                    .filterNot { src -> priority.contains(src.index) }
+                    .forEach { add(it.index) }
             }
-            StreamExtractorService.SOURCES
-                .filterNot { src -> sourcePriorityOrder.contains(src.index) }
-                .forEach { add(it.index) }
         }
-    }
     /** Track sources we already failed on this session so we don't cycle back. */
     private val failedSourceIndices = mutableSetOf<Int>()
 
@@ -440,7 +486,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     val subs = SubtitleService.fetchSubtitles(
                         tmdbId = tmdbId,
                         season = seasonNumber,
-                        episode = episodeNumber
+                        episode = episodeNumber,
+                        title = _uiState.value.title.takeIf { it.isNotBlank() },
+                        year = _uiState.value.year?.toIntOrNull(),
                     )
                     _uiState.update { it.copy(externalSubtitles = subs) }
                     updateSubtitleTrackList()
@@ -476,6 +524,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val context = getApplication<Application>()
         resetStartupRetryState()
 
+        // New stream → drop any in-overlay subtitle from the previous one.
+        _uiState.update {
+            it.copy(
+                customSubtitleCues = emptyList(),
+                customSubtitleLabel = null,
+                customSubtitleSourceUrl = null,
+                customSubtitleLoading = false,
+            )
+        }
+
         // Custom buffer for torrent streams: bigger buffer = fewer stalls
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -493,6 +551,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         val msFactory = DefaultMediaSourceFactory(context)
         currentStreamUrl = streamUrl
+        autoQualityAppliedForUrl = null
 
         val exo = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
@@ -585,7 +644,58 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
         Log.d(TAG, "Found ${audioTracks.size} audio tracks")
 
-        _uiState.update { it.copy(audioTracks = audioTracks) }
+        // Video tracks (HLS variants, DASH renditions, etc.)
+        val videoTracks = mutableListOf<VideoTrackInfo>()
+        for ((groupIdx, group) in tracks.groups.withIndex()) {
+            if (group.type != C.TRACK_TYPE_VIDEO) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                val format = group.getTrackFormat(i)
+                videoTracks.add(VideoTrackInfo(
+                    groupIndex = groupIdx,
+                    trackIndex = i,
+                    width = if (format.width > 0) format.width else null,
+                    height = if (format.height > 0) format.height else null,
+                    bitrate = if (format.bitrate > 0) format.bitrate else null,
+                    frameRate = if (format.frameRate > 0f) format.frameRate else null,
+                    codec = format.codecs,
+                    isSelected = group.isTrackSelected(i),
+                ))
+            }
+        }
+        // Sort highest-quality first for the picker.
+        val sortedVideo = videoTracks.sortedWith(
+            compareByDescending<VideoTrackInfo> { (it.height ?: 0) }
+                .thenByDescending { it.width ?: 0 }
+                .thenByDescending { it.bitrate ?: 0 }
+        )
+        Log.d(TAG, "Found ${sortedVideo.size} video variants")
+
+        // Auto-pin the highest variant the first time we see >1 quality for
+        // this stream URL. User can switch to "Auto" or another variant via
+        // the quality overlay.
+        val url = currentStreamUrl
+        var pinnedAuto = false
+        if (sortedVideo.size > 1 && url != null && autoQualityAppliedForUrl != url) {
+            val best = sortedVideo.first()
+            val grp = tracks.groups.getOrNull(best.groupIndex)
+            if (grp != null) {
+                Log.i(TAG, "Auto-selecting highest quality: ${best.displayName()} (${best.metadata()})")
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, best.trackIndex))
+                    .build()
+                autoQualityAppliedForUrl = url
+                pinnedAuto = true
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                audioTracks = audioTracks,
+                videoTracks = sortedVideo,
+                isQualityAuto = if (pinnedAuto) false else it.isQualityAuto,
+            )
+        }
         updateSubtitleTrackList()
     }
 
@@ -688,6 +798,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         // External subtitles not yet added to the player
+        val activeCustomUrl = _uiState.value.customSubtitleSourceUrl
         for (ext in _uiState.value.externalSubtitles) {
             if (ext.url in addedExternalSubLabels) continue
             subTracks.add(SubtitleTrackInfo(
@@ -695,7 +806,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 label = "${ext.displayName} (${ext.source})",
                 language = ext.language,
                 isBuiltIn = false,
-                isSelected = false,
+                isSelected = ext.url == activeCustomUrl,
                 externalUrl = ext.url,
                 source = ext.source
             ))
@@ -780,6 +891,33 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         updateTracks()
     }
 
+    // ── Video / Quality ──
+
+    fun selectVideoTrack(track: VideoTrackInfo) {
+        val exo = player ?: return
+        val groups = exo.currentTracks.groups
+        if (track.groupIndex < 0 || track.groupIndex >= groups.size) return
+        val group = groups[track.groupIndex]
+        Log.i(TAG, "Selecting video quality: ${track.displayName()} (${track.metadata()})")
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
+            .build()
+        autoQualityAppliedForUrl = currentStreamUrl
+        _uiState.update { it.copy(isQualityAuto = false) }
+        updateTracks()
+    }
+
+    fun selectAutoQuality() {
+        val exo = player ?: return
+        Log.i(TAG, "Selecting Auto quality (clearing video override)")
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .build()
+        autoQualityAppliedForUrl = currentStreamUrl
+        _uiState.update { it.copy(isQualityAuto = true) }
+        updateTracks()
+    }
+
     // ── Subtitles ──
 
     fun selectSubtitle(track: SubtitleTrackInfo) {
@@ -795,48 +933,40 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     .build()
             }
         } else if (track.externalUrl != null) {
-            // Add external subtitle to MediaItem as SubtitleConfiguration
-            val url = currentStreamUrl ?: return
-
-            val mimeType = when {
-                track.externalUrl.contains(".srt", true) || track.id.contains("srt") -> MimeTypes.APPLICATION_SUBRIP
-                track.externalUrl.contains(".vtt", true) -> MimeTypes.TEXT_VTT
-                track.externalUrl.contains(".ass", true) || track.externalUrl.contains(".ssa", true) -> MimeTypes.TEXT_SSA
-                else -> MimeTypes.APPLICATION_SUBRIP
-            }
-
-            // Extract clean display name (without source suffix)
+            // External subtitles are rendered by our own Compose overlay so
+            // that subtitle-delay changes don't require the player to reload.
+            // Disable ExoPlayer's text renderer for this track and parse the
+            // cues into UI state.
             val cleanLabel = track.label.replace(" (${track.source})", "").trim()
-            Log.d(TAG, "Adding external subtitle: $cleanLabel, url=${track.externalUrl}, mime=$mimeType")
-
-            val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(track.externalUrl))
-                .setMimeType(mimeType)
-                .setLanguage(track.language)
-                .setLabel(cleanLabel)
-                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                .build()
-
-            // Track it before reload — set pending so it auto-selects after prepare
-            addedExternalSubConfigs.add(subConfig)
-            addedExternalSubLabels[track.externalUrl] = cleanLabel
-            pendingSubtitleLabel = cleanLabel
-
-            // Rebuild MediaItem with all accumulated external subs
-            val mediaItem = MediaItem.Builder()
-                .setUri(url)
-                .setSubtitleConfigurations(addedExternalSubConfigs.toList())
-                .build()
-
-            val currentPos = exo.currentPosition
-            val wasPlaying = exo.isPlaying
-            exo.setMediaItem(mediaItem, currentPos)
-            exo.prepare()
-            exo.playWhenReady = wasPlaying
-
-            // Enable text tracks
+            val mimeShort = when {
+                track.externalUrl.contains(".vtt", true) -> "vtt"
+                else -> "srt"
+            }
+            Log.d(TAG, "Loading external subtitle for overlay: $cleanLabel ($mimeShort) from ${track.externalUrl}")
+            // Hide any built-in text track while a custom one is active.
             exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
+            _uiState.update {
+                it.copy(
+                    customSubtitleLabel = cleanLabel,
+                    customSubtitleSourceUrl = track.externalUrl,
+                    customSubtitleCues = emptyList(),
+                    customSubtitleLoading = true,
+                )
+            }
+            viewModelScope.launch {
+                val cues = withContext(Dispatchers.IO) {
+                    SubtitleCueParser.fetchAndParse(track.externalUrl, mimeShort)
+                }
+                Log.d(TAG, "Parsed ${cues.size} cues for $cleanLabel")
+                _uiState.update {
+                    // If the user already switched to another sub, drop the result.
+                    if (it.customSubtitleLabel != cleanLabel) it
+                    else it.copy(customSubtitleCues = cues, customSubtitleLoading = false)
+                }
+                updateSubtitleTrackList()
+            }
         }
         updateSubtitleTrackList()
     }
@@ -868,6 +998,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
+        // Also drop our custom overlay subtitle.
+        _uiState.update {
+            it.copy(
+                customSubtitleCues = emptyList(),
+                customSubtitleLabel = null,
+                customSubtitleSourceUrl = null,
+                customSubtitleLoading = false,
+            )
+        }
         updateSubtitleTrackList()
     }
 
@@ -882,6 +1021,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     // ── Subtitle style ──
 
     fun updateSubtitleStyle(transform: (SubtitleStyleSettings) -> SubtitleStyleSettings) {
+        // Subtitle delay is now consumed by the in-Compose subtitle overlay,
+        // so a state update is enough — no player reload required.
         _uiState.update { it.copy(subtitleStyle = transform(it.subtitleStyle)) }
     }
 
@@ -938,6 +1079,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         showControls()
     }
 
+    fun showQualityOverlay() {
+        _uiState.update { it.copy(showQualityOverlay = true, showControls = false) }
+    }
+
+    fun hideQualityOverlay() {
+        _uiState.update { it.copy(showQualityOverlay = false) }
+        showControls()
+    }
+
     fun showSubtitleStylePanel() {
         _uiState.update { it.copy(showSubtitleStylePanel = true, showControls = false) }
     }
@@ -954,6 +1104,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             if (_uiState.value.isPlaying &&
                 !_uiState.value.showSubtitleOverlay &&
                 !_uiState.value.showAudioOverlay &&
+                !_uiState.value.showQualityOverlay &&
                 !_uiState.value.showSubtitleStylePanel
             ) {
                 _uiState.update { it.copy(showControls = false) }
@@ -993,7 +1144,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         saveCurrentProgress(pos, dur.coerceAtLeast(0L))
                     }
                 }
-                delay(500)
+                delay(200)
             }
         }
     }
@@ -1188,7 +1339,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     val subs = SubtitleService.fetchSubtitles(
                         tmdbId = tmdbId,
                         season = seasonNumber,
-                        episode = episodeNumber
+                        episode = episodeNumber,
+                        title = _uiState.value.title.takeIf { it.isNotBlank() },
+                        year = _uiState.value.year?.toIntOrNull(),
                     )
                     _uiState.update { it.copy(externalSubtitles = subs) }
                     updateSubtitleTrackList()
@@ -1220,6 +1373,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val context = getApplication<Application>()
         resetStartupRetryState()
         currentReferer = referer
+
+        // New stream → drop any in-overlay subtitle from the previous one.
+        _uiState.update {
+            it.copy(
+                customSubtitleCues = emptyList(),
+                customSubtitleLabel = null,
+                customSubtitleSourceUrl = null,
+                customSubtitleLoading = false,
+            )
+        }
 
         val headers = buildMap<String, String> {
             if (referer.isNotBlank()) {
@@ -1262,6 +1425,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exo.volume = 1.0f
 
         currentStreamUrl = streamUrl
+        autoQualityAppliedForUrl = null
         // Let ExoPlayer auto-detect from Content-Type header. Works for .m3u8 (HLS),
         // .mp4 (progressive), and direct download URLs from 4KHDHub/HDHub4u.
         val mediaItem = MediaItem.fromUri(streamUrl)
@@ -1321,6 +1485,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         iptvRetryAttempt = 0
         currentReferer = referer
         currentStreamUrl = streamUrl
+        autoQualityAppliedForUrl = null
 
         val headers = buildMap<String, String> {
             if (referer.isNotBlank()) {
@@ -1754,7 +1919,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 tmdbId = state.tmdbId,
                 season = if (state.isMovie) null else state.seasonNumber,
                 episode = if (state.isMovie) null else state.episodeNumber,
-                timeoutMs = 20_000L
+                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L
             )
             if (result != null) {
                 withContext(Dispatchers.Main) {
@@ -2029,7 +2194,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     tmdbId = tmdbId,
                     season = sNum,
                     episode = eNum,
-                    timeoutMs = 20_000L,
+                    timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L,
                 )
                 if (result == null) {
                     _uiState.update {
@@ -2225,6 +2390,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         tmdbId = tmdbId,
                         season = sNum,
                         episode = eNum,
+                        title = s.title.takeIf { it.isNotBlank() },
+                        year = s.year?.toIntOrNull(),
                     )
                     _uiState.update { it.copy(externalSubtitles = subs) }
                     withContext(Dispatchers.Main) { updateSubtitleTrackList() }

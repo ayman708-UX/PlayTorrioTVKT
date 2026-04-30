@@ -27,6 +27,80 @@ object WebStreamrService {
     // Public entry points
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Xpass — multi-backup HLS player at play.xpass.top. Each title page
+     * exposes a `backups=[…]` JS array of playlist endpoints; each playlist
+     * resolves to JSON containing one or more `.m3u8` source URLs. We try
+     * each backup in declared order and return the first working m3u8.
+     */
+    suspend fun extractXpass(tmdbId: Int, season: Int?, episode: Int?): StreamResult? =
+        withContext(Dispatchers.IO) {
+            try {
+                val isMovie = season == null
+                val pageUrl = if (isMovie) "https://play.xpass.top/e/movie/$tmdbId"
+                              else "https://play.xpass.top/e/tv/$tmdbId/$season/$episode"
+                Log.i(WTAG, "[Xpass] Page: $pageUrl")
+
+                val html = httpGetWithHeaders(pageUrl, mapOf(
+                    "Referer" to "https://play.xpass.top/"
+                )) ?: return@withContext null.also { Log.w(WTAG, "[Xpass] Page fetch failed") }
+
+                // Pull the backups=[ … ] array. JSON has objects of the form
+                // {"id":"…","name":"TIK 1","url":"/mdata/…/playlist.json","dl":false}
+                val backupsMatch = Regex("""var\s+backups\s*=\s*(\[.*?])\s*</script>""", RegexOption.DOT_MATCHES_ALL)
+                    .find(html)
+                    ?: Regex("""var\s+backups\s*=\s*(\[.*?])""", RegexOption.DOT_MATCHES_ALL).find(html)
+                    ?: return@withContext null.also { Log.w(WTAG, "[Xpass] backups[] not found in page") }
+
+                val backupsArr = org.json.JSONArray(backupsMatch.groupValues[1])
+                Log.i(WTAG, "[Xpass] ${backupsArr.length()} backup playlist(s)")
+
+                for (i in 0 until backupsArr.length()) {
+                    val obj = backupsArr.optJSONObject(i) ?: continue
+                    val name = obj.optString("name")
+                    val rel  = obj.optString("url").takeIf { it.isNotBlank() } ?: continue
+                    val abs  = if (rel.startsWith("http")) rel
+                               else "https://play.xpass.top$rel"
+                    val plJson = httpGetWithHeaders(abs, mapOf("Referer" to pageUrl))
+                    if (plJson == null) {
+                        Log.w(WTAG, "[Xpass] $name: playlist fetch failed ($abs)")
+                        continue
+                    }
+                    // playlist[0].sources[].file
+                    val first: String? = try {
+                        var pick: String? = null
+                        val root = JSONObject(plJson)
+                        val playlist = root.optJSONArray("playlist")
+                        val item = playlist?.optJSONObject(0)
+                        val sources = item?.optJSONArray("sources")
+                        if (sources != null) {
+                            for (j in 0 until sources.length()) {
+                                val s = sources.optJSONObject(j) ?: continue
+                                val file = s.optString("file")
+                                if (file.contains(".m3u8", ignoreCase = true)) { pick = file; break }
+                            }
+                        }
+                        pick
+                    } catch (e: Exception) {
+                        Log.w(WTAG, "[Xpass] $name: parse failed: ${e.message}")
+                        null
+                    }
+                    if (first == null) continue
+
+                    Log.i(WTAG, "[Xpass] $name → $first")
+                    return@withContext StreamResult(
+                        url = first,
+                        referer = "https://play.xpass.top/"
+                    )
+                }
+                Log.w(WTAG, "[Xpass] No playable backups")
+                null
+            } catch (e: Exception) {
+                Log.e(WTAG, "[Xpass] failed", e)
+                null
+            }
+        }
+
     /** 4KHDHub — multi-language movies + series. Full scraper chain. */
     suspend fun extractFourKHDHub(tmdbId: Int, season: Int?, episode: Int?): StreamResult? =
         withContext(Dispatchers.IO) {

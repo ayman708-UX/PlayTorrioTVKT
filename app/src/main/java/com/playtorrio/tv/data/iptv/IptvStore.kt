@@ -35,6 +35,7 @@ object IptvStore {
         put("username", portal.username)
         put("password", portal.password)
         put("source", portal.source)
+        put("kind", portal.kind)
         put("name", name)
         put("expiry", expiry)
         put("max", maxConnections)
@@ -47,6 +48,7 @@ object IptvStore {
             username = optString("username"),
             password = optString("password"),
             source = optString("source"),
+            kind = optString("kind", "xtream").ifEmpty { "xtream" },
         ),
         name = optString("name"),
         expiry = optString("expiry"),

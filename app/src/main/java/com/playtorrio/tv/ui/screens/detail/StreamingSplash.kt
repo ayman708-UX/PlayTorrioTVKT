@@ -39,8 +39,11 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.playtorrio.tv.PlayerActivity
+import com.playtorrio.tv.data.AppPreferences
 import com.playtorrio.tv.data.streaming.StreamExtractorService
 import com.playtorrio.tv.data.streaming.StreamResult
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -78,13 +81,15 @@ fun StreamingSplash(
             isError = false
             statusText = "Finding best source…"
 
-            // Sequential extraction to avoid TV lag from concurrent WebView work.
+            // Race sources in batches of 2 to keep WebView load light on TV boxes.
+            // First batch in priority gets paired together; whichever returns a
+            // stream first wins (the slower one is cancelled).
             var winner: Pair<StreamResult, StreamExtractorService.Source>? = null
             val priorityOrder = buildList {
                 // If resuming from a remembered source, try it first.
                 forceSourceIndex?.let { add(it) }
-                addAll(listOf(8, 3, 2))
-            }.distinct() // VidFun, Vidlink, Videasy (or remembered first)
+                addAll(AppPreferences.streamingSourceOrder)
+            }.distinct() // User-configured priority (Settings → Streaming Sources)
             val orderedSources = buildList {
                 priorityOrder.forEach { idx ->
                     StreamExtractorService.SOURCES.find { it.index == idx }?.let { add(it) }
@@ -94,20 +99,50 @@ fun StreamingSplash(
                     .forEach { add(it) }
             }
 
-            val total = orderedSources.size
-            for ((idx, source) in orderedSources.withIndex()) {
-                statusText = "Trying ${source.name} (${idx + 1}/$total)…"
+            val batches = orderedSources.chunked(2)
+            for ((batchIdx, batch) in batches.withIndex()) {
+                val names = batch.joinToString(" + ") { it.name }
+                statusText = "Trying $names (${batchIdx + 1}/${batches.size})…"
 
-                val result = StreamExtractorService.extract(
-                    context = context,
-                    sourceIdx = source.index,
-                    tmdbId = tmdbId,
-                    season = seasonNumber,
-                    episode = episodeNumber
-                )
+                val batchWinner: Pair<StreamResult, StreamExtractorService.Source>? = coroutineScope {
+                    val deferreds = batch.map { source ->
+                        async {
+                            val r = StreamExtractorService.extract(
+                                context = context,
+                                sourceIdx = source.index,
+                                tmdbId = tmdbId,
+                                season = seasonNumber,
+                                episode = episodeNumber,
+                                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L
+                            )
+                            r?.let { it to source }
+                        }
+                    }
+                    // Wait for the first non-null; cancel the rest.
+                    var found: Pair<StreamResult, StreamExtractorService.Source>? = null
+                    val remaining = deferreds.toMutableList()
+                    while (remaining.isNotEmpty() && found == null) {
+                        val done = kotlinx.coroutines.selects.select<Pair<StreamResult, StreamExtractorService.Source>?> {
+                            remaining.forEach { d ->
+                                d.onAwait { it }
+                            }
+                        }
+                        if (done != null) {
+                            found = done
+                        } else {
+                            // Remove the completed (null) deferred and keep waiting.
+                            val completed = remaining.indexOfFirst { it.isCompleted }
+                            if (completed >= 0) remaining.removeAt(completed) else remaining.clear()
+                        }
+                    }
+                    if (found != null) {
+                        deferreds.forEach { if (!it.isCompleted) it.cancel() }
+                    }
+                    found
+                }
 
-                if (result != null) {
-                    winner = result to source
+                if (batchWinner != null) {
+                    winner = batchWinner
                     break
                 }
 

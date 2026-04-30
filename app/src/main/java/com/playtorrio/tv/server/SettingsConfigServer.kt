@@ -25,6 +25,8 @@ class SettingsConfigServer(
 
     data class AddonInfo(val url: String, val name: String, val description: String?)
 
+    data class SourceInfo(val index: Int, val name: String)
+
     data class SettingsState(
       val addons: List<AddonInfo>,
       val streamingMode: Boolean,
@@ -41,7 +43,10 @@ class SettingsConfigServer(
       val torrentDisableUpload: Boolean = true,
       val torrentDisableIpv6: Boolean = true,
       val trailerAutoplay: Boolean = true,
-      val trailerDelaySec: Int = 3
+      val trailerDelaySec: Int = 3,
+      val streamingSourceOrder: List<Int> = emptyList(),
+      val streamingExtractTimeoutSec: Int = 25,
+      val availableSources: List<SourceInfo> = emptyList()
     )
 
     data class PendingChange(
@@ -62,6 +67,8 @@ class SettingsConfigServer(
       val proposedTorrentDisableIpv6: Boolean = true,
       val proposedTrailerAutoplay: Boolean = true,
       val proposedTrailerDelaySec: Int = 3,
+      val proposedStreamingSourceOrder: List<Int> = emptyList(),
+      val proposedStreamingExtractTimeoutSec: Int = 25,
       var status: ChangeStatus = ChangeStatus.PENDING
     )
 
@@ -128,6 +135,11 @@ class SettingsConfigServer(
             val torrentDisableIpv6 = (parsed["torrentDisableIpv6"] as? Boolean) ?: current.torrentDisableIpv6
             val trailerAutoplay = (parsed["trailerAutoplay"] as? Boolean) ?: current.trailerAutoplay
             val trailerDelaySec = (parsed["trailerDelaySec"] as? Number)?.toInt() ?: current.trailerDelaySec
+            val streamingSourceOrder = (parsed["streamingSourceOrder"] as? List<*>)
+                ?.mapNotNull { (it as? Number)?.toInt() }
+                ?: current.streamingSourceOrder
+            val streamingExtractTimeoutSec = (parsed["streamingExtractTimeoutSec"] as? Number)?.toInt()
+                ?: current.streamingExtractTimeoutSec
 
             val change = PendingChange(
               proposedAddons = urls,
@@ -145,7 +157,9 @@ class SettingsConfigServer(
               proposedTorrentDisableUpload = torrentDisableUpload,
               proposedTorrentDisableIpv6 = torrentDisableIpv6,
               proposedTrailerAutoplay = trailerAutoplay,
-              proposedTrailerDelaySec = trailerDelaySec
+              proposedTrailerDelaySec = trailerDelaySec,
+              proposedStreamingSourceOrder = streamingSourceOrder,
+              proposedStreamingExtractTimeoutSec = streamingExtractTimeoutSec
             )
             pendingChanges[change.id] = change
             onChangeProposed(change)
@@ -243,6 +257,16 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#000;color:#fff;min
 .debrid-section{display:none;margin-top:1rem}
 .debrid-section.visible{display:block}
 .global-actions{position:sticky;bottom:1rem;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px);padding-top:1rem;margin-top:2rem}
+.src-list{list-style:none;border-top:1px solid rgba(255,255,255,0.06)}
+.src-item{border-bottom:1px solid rgba(255,255,255,0.06);padding:0.75rem 0;display:flex;align-items:center;gap:0.75rem;user-select:none;-webkit-user-select:none}
+.src-item.dragging{opacity:0.4}
+.src-handle{cursor:grab;color:rgba(255,255,255,0.3);font-size:1.1rem;padding:0 0.25rem;touch-action:none}
+.src-name{flex:1;font-size:0.95rem;font-weight:500}
+.src-rank{font-size:0.7rem;color:rgba(255,255,255,0.3);min-width:1.5rem;text-align:center}
+.src-arrows{display:flex;gap:0.35rem}
+.src-arrow{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;width:32px;height:32px;border-radius:8px;font-size:1rem;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
+.src-arrow:hover{background:rgba(129,140,248,0.2);border-color:rgba(129,140,248,0.4)}
+.src-arrow:disabled{opacity:0.25;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -286,6 +310,17 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#000;color:#fff;min
         <span class="toggle-track"></span>
         <span class="toggle-thumb"></span>
       </label>
+    </div>
+
+    <div class="section-label" style="margin-top:1.75rem">Source Priority</div>
+    <div class="toggle-desc" style="margin-bottom:0.6rem">Drag or use the arrows to reorder. The TV tries the top sources first, racing them in pairs.</div>
+    <ul class="src-list" id="sourceList"></ul>
+
+    <div class="section-label" style="margin-top:1.75rem">Extraction Timeout</div>
+    <div class="toggle-desc" style="margin-bottom:0.6rem">Max time to wait per source before giving up (5–60 seconds).</div>
+    <div style="display:flex;align-items:center;gap:1rem;padding:0.5rem 0">
+      <input type="range" id="extractTimeoutSlider" min="5" max="60" value="25" style="flex:1;accent-color:#818cf8" oninput="onTimeoutChange(this.value)">
+      <span id="extractTimeoutValue" style="font-size:1.1rem;font-weight:600;color:#818cf8;min-width:3rem;text-align:center">25s</span>
     </div>
   </div>
 
@@ -429,8 +464,9 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#000;color:#fff;min
 
 <script>
 var TAB_NAMES = ['addons','streaming','torrent','debrid','trailers'];
-var state = {addons:[],streamingMode:true,debridEnabled:false,debridProvider:'realdebrid',realDebridApiKey:'',torboxApiKey:'',torrentPreset:'balanced',torrentCacheSizeMb:256,torrentPreloadPercent:1,torrentReadAheadPercent:86,torrentConnectionsLimit:140,torrentResponsiveMode:true,torrentDisableUpload:true,torrentDisableIpv6:true,trailerAutoplay:true,trailerDelaySec:3};
+var state = {addons:[],streamingMode:true,debridEnabled:false,debridProvider:'realdebrid',realDebridApiKey:'',torboxApiKey:'',torrentPreset:'balanced',torrentCacheSizeMb:256,torrentPreloadPercent:1,torrentReadAheadPercent:86,torrentConnectionsLimit:140,torrentResponsiveMode:true,torrentDisableUpload:true,torrentDisableIpv6:true,trailerAutoplay:true,trailerDelaySec:3,streamingSourceOrder:[],streamingExtractTimeoutSec:25,availableSources:[]};
 var pendingAddons = [];
+var sourceOrder = [];
 var dirty = false;
 
 function updateSaveButton() {
@@ -466,6 +502,73 @@ function onTrailerDelayChange(v) {
   document.getElementById('trailerDelayValue').textContent = val_ + 's';
   dirty = true;
   updateSaveButton();
+}
+
+function onTimeoutChange(v) {
+  var n = parseInt(v, 10);
+  state.streamingExtractTimeoutSec = n;
+  document.getElementById('extractTimeoutValue').textContent = n + 's';
+  dirty = true;
+  updateSaveButton();
+}
+
+function sourceName(idx) {
+  for (var i = 0; i < state.availableSources.length; i++) {
+    if (state.availableSources[i].index === idx) return state.availableSources[i].name;
+  }
+  return 'Source #' + idx;
+}
+
+function renderSources() {
+  var list = document.getElementById('sourceList');
+  if (!list) return;
+  list.innerHTML = '';
+  // Append any sources missing from the order so they're visible/reorderable.
+  var seen = {};
+  sourceOrder.forEach(function(i){ seen[i] = true; });
+  state.availableSources.forEach(function(s){
+    if (!seen[s.index]) { sourceOrder.push(s.index); seen[s.index] = true; }
+  });
+  sourceOrder.forEach(function(idx, pos){
+    var li = document.createElement('li');
+    li.className = 'src-item';
+    li.draggable = true;
+    li.dataset.pos = String(pos);
+    li.innerHTML =
+      '<span class="src-handle">⋮⋮</span>' +
+      '<span class="src-rank">' + (pos + 1) + '</span>' +
+      '<span class="src-name">' + escHtml(sourceName(idx)) + '</span>' +
+      '<div class="src-arrows">' +
+        '<button class="src-arrow" onclick="moveSource(' + pos + ',-1)" ' + (pos === 0 ? 'disabled' : '') + '>↑</button>' +
+        '<button class="src-arrow" onclick="moveSource(' + pos + ',1)" ' + (pos === sourceOrder.length - 1 ? 'disabled' : '') + '>↓</button>' +
+      '</div>';
+    li.addEventListener('dragstart', function(e){ li.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(pos)); });
+    li.addEventListener('dragend', function(){ li.classList.remove('dragging'); });
+    li.addEventListener('dragover', function(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; });
+    li.addEventListener('drop', function(e){
+      e.preventDefault();
+      var from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      var to = parseInt(li.dataset.pos, 10);
+      if (isNaN(from) || isNaN(to) || from === to) return;
+      var item = sourceOrder.splice(from, 1)[0];
+      sourceOrder.splice(to, 0, item);
+      dirty = true;
+      updateSaveButton();
+      renderSources();
+    });
+    list.appendChild(li);
+  });
+}
+
+function moveSource(pos, delta) {
+  var nextPos = pos + delta;
+  if (nextPos < 0 || nextPos >= sourceOrder.length) return;
+  var tmp = sourceOrder[pos];
+  sourceOrder[pos] = sourceOrder[nextPos];
+  sourceOrder[nextPos] = tmp;
+  dirty = true;
+  updateSaveButton();
+  renderSources();
 }
 
 function selectProvider(id) {
@@ -596,6 +699,13 @@ async function loadState() {
     document.getElementById('trailerDelaySlider').value = state.trailerDelaySec || 3;
     document.getElementById('trailerDelayValue').textContent = (state.trailerDelaySec || 3) + 's';
     document.getElementById('trailerDelaySection').style.display = state.trailerAutoplay !== false ? '' : 'none';
+
+    sourceOrder = (state.streamingSourceOrder || []).slice();
+    renderSources();
+    var t = state.streamingExtractTimeoutSec || 25;
+    document.getElementById('extractTimeoutSlider').value = t;
+    document.getElementById('extractTimeoutValue').textContent = t + 's';
+
     dirty = false;
     updateSaveButton();
   } catch(e) {
@@ -622,7 +732,9 @@ async function saveChanges() {
     torrentDisableUpload: document.getElementById('torrentUploadToggle').checked,
     torrentDisableIpv6: document.getElementById('torrentIpv6Toggle').checked,
     trailerAutoplay: document.getElementById('trailerAutoplayToggle').checked,
-    trailerDelaySec: parseInt(document.getElementById('trailerDelaySlider').value, 10)
+    trailerDelaySec: parseInt(document.getElementById('trailerDelaySlider').value, 10),
+    streamingSourceOrder: sourceOrder.slice(),
+    streamingExtractTimeoutSec: parseInt(document.getElementById('extractTimeoutSlider').value, 10)
   };
   try {
     var r = await fetch('/api/settings', {

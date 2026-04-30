@@ -6,6 +6,9 @@ data class IptvPortal(
     val username: String,
     val password: String,
     val source: String = "",
+    /** "xtream" (default) or "m3u". M3U portals use `url` as the playlist URL,
+     *  `username` as a display name, and an empty `password`. */
+    val kind: String = "xtream",
 )
 
 /** Portal that successfully authenticated against /player_api.php. */
@@ -35,6 +38,8 @@ data class IptvStream(
     val categoryId: String,
     val containerExt: String, // "ts" / "mp4" / "mkv"
     val kind: String,
+    /** When non-empty, used directly as the playable URL (M3U entries). */
+    val directUrl: String = "",
 )
 
 enum class IptvSection { LIVE, VOD, SERIES }

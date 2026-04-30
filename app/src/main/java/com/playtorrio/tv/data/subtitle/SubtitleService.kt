@@ -29,14 +29,31 @@ object SubtitleService {
     suspend fun fetchSubtitles(
         tmdbId: Int,
         season: Int? = null,
-        episode: Int? = null
+        episode: Int? = null,
+        title: String? = null,
+        year: Int? = null,
     ): List<ExternalSubtitle> = coroutineScope {
         val wyzie = async { fetchWyzie(tmdbId, season, episode) }
         val levrx = async { fetchLevrx(tmdbId, season, episode) }
+        val sublitCat = async {
+            if (title.isNullOrBlank()) emptyList()
+            else try {
+                SubtitleCatService.fetchAll(
+                    title = title,
+                    year = year,
+                    season = season,
+                    episode = episode,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "SubtitleCat fetch failed: ${e.message}")
+                emptyList()
+            }
+        }
 
         val all = mutableListOf<ExternalSubtitle>()
         all.addAll(wyzie.await())
         all.addAll(levrx.await())
+        all.addAll(sublitCat.await())
 
         // Sort: English first, then by download count
         all.sortedWith(

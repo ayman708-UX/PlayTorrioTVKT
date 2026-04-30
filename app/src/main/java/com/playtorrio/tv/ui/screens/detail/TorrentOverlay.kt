@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,6 +89,7 @@ fun TorrentOverlay(
     onStremioStreamSelected: (StremioStream) -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
+    val emptyFocusRequester = remember { FocusRequester() }
 
     AnimatedVisibility(
         visible = visible,
@@ -273,8 +275,15 @@ fun TorrentOverlay(
                                 }
                             }
                         } else if (results.isEmpty()) {
+                            LaunchedEffect(selectedTabIndex) {
+                                runCatching { emptyFocusRequester.requestFocus() }
+                            }
                             Box(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .focusRequester(emptyFocusRequester)
+                                    .focusable(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -330,8 +339,15 @@ fun TorrentOverlay(
                                 }
                             }
                         } else if (filteredStreams.isEmpty()) {
+                            LaunchedEffect(selectedTabIndex) {
+                                runCatching { emptyFocusRequester.requestFocus() }
+                            }
                             Box(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .focusRequester(emptyFocusRequester)
+                                    .focusable(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(

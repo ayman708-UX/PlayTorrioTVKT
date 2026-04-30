@@ -42,6 +42,21 @@ object IptvClient {
     }
 
     fun verifyOrNull(p: IptvPortal, timeoutMs: Long = 6000): VerifiedPortal? {
+        if (p.kind == "m3u") {
+            val parsed = M3uParser.fetchAndParse(p.url, timeoutMs) ?: return null
+            val displayName = p.username.ifBlank {
+                parsed.first.playlistName
+                    ?: runCatching { java.net.URI(p.url).host }.getOrNull().orEmpty()
+                    ?: "M3U Playlist"
+            }
+            return VerifiedPortal(
+                portal = p.copy(username = displayName),
+                name = displayName,
+                expiry = "—",
+                maxConnections = "1",
+                activeConnections = "0",
+            )
+        }
         val info = login(p, timeoutMs) ?: return null
         return VerifiedPortal(
             portal = p,
@@ -53,6 +68,15 @@ object IptvClient {
     }
 
     fun categories(p: IptvPortal, kind: IptvSection): List<IptvCategory> {
+        if (p.kind == "m3u") {
+            if (kind != IptvSection.LIVE) return emptyList()
+            val groups = M3uParser.getChannels(p.url)
+                .map { it.categoryId }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+            return groups.map { IptvCategory(id = it, name = it) }
+        }
         val action = when (kind) {
             IptvSection.LIVE -> "get_live_categories"
             IptvSection.VOD -> "get_vod_categories"
@@ -74,6 +98,12 @@ object IptvClient {
     }
 
     fun streams(p: IptvPortal, kind: IptvSection, categoryId: String): List<IptvStream> {
+        if (p.kind == "m3u") {
+            if (kind != IptvSection.LIVE) return emptyList()
+            val all = M3uParser.getChannels(p.url)
+            return if (categoryId.isEmpty()) all
+            else all.filter { it.categoryId == categoryId }
+        }
         val action = when (kind) {
             IptvSection.LIVE -> "get_live_streams"
             IptvSection.VOD -> "get_vod_streams"
@@ -143,12 +173,14 @@ object IptvClient {
         }.getOrElse { emptyList() }
     }
 
-    fun streamUrl(p: IptvPortal, s: IptvStream): String =
-        when (s.kind) {
+    fun streamUrl(p: IptvPortal, s: IptvStream): String {
+        if (s.directUrl.isNotEmpty()) return s.directUrl
+        return when (s.kind) {
             "live" -> "${p.url}/live/${enc(p.username)}/${enc(p.password)}/${s.streamId}.${s.containerExt}"
             "vod" -> "${p.url}/movie/${enc(p.username)}/${enc(p.password)}/${s.streamId}.${s.containerExt}"
             else -> ""
         }
+    }
 
     fun episodeUrl(p: IptvPortal, e: IptvEpisode): String =
         "${p.url}/series/${enc(p.username)}/${enc(p.password)}/${e.id}.${e.containerExt}"

@@ -29,6 +29,11 @@ import com.playtorrio.tv.ui.screens.detail.StremioDetailScreen
 import com.playtorrio.tv.ui.screens.music.MusicScreen
 import com.playtorrio.tv.ui.screens.audiobook.AudiobookScreen
 import com.playtorrio.tv.ui.screens.iptv.IptvScreen
+import com.playtorrio.tv.ui.screens.reader.ComicDetailsScreen
+import com.playtorrio.tv.ui.screens.reader.ComicsScreen
+import com.playtorrio.tv.ui.screens.reader.MangaDetailsScreen
+import com.playtorrio.tv.ui.screens.reader.MangaScreen
+import com.playtorrio.tv.ui.screens.reader.ReaderScreen
 import com.playtorrio.tv.ui.screens.search.SearchScreen
 import com.playtorrio.tv.ui.screens.stremio.StremioCatalogScreen
 import com.playtorrio.tv.ui.theme.PlayTorrioTheme
@@ -102,6 +107,27 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("iptv") {
                         IptvScreen(navController = navController)
+                    }
+                    composable("manga") {
+                        MangaScreen(navController = navController)
+                    }
+                    composable(
+                        "manga_detail/{seriesId}",
+                        arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        MangaDetailsScreen(
+                            seriesId = backStackEntry.arguments!!.getString("seriesId").orEmpty(),
+                            navController = navController
+                        )
+                    }
+                    composable("comics") {
+                        ComicsScreen(navController = navController)
+                    }
+                    composable("comic_detail") {
+                        ComicDetailsScreen(navController = navController)
+                    }
+                    composable("reader") {
+                        ReaderScreen(navController = navController)
                     }
                     composable(
                         "detail/{mediaId}/{isMovie}",

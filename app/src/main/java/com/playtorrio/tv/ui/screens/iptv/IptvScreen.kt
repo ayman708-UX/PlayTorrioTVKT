@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -303,7 +306,8 @@ private fun PortalListView(state: IptvUiState, vm: IptvViewModel, onBack: () -> 
             isAdding = state.isAdding,
             error = state.addError,
             onDismiss = { vm.dismissAddDialog() },
-            onSubmit = { url, user, pass -> vm.addManual(url, user, pass) },
+            onSubmitXtream = { url, user, pass -> vm.addManual(url, user, pass) },
+            onSubmitM3u = { url, name -> vm.addM3u(url, name) },
         )
     }
 
@@ -398,27 +402,45 @@ private fun AddPortalDialog(
     isAdding: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onSubmit: (String, String, String) -> Unit,
+    onSubmitXtream: (String, String, String) -> Unit,
+    onSubmitM3u: (String, String) -> Unit,
 ) {
+    // 0 = Xtream, 1 = M3U playlist
+    var mode by remember { mutableStateOf(0) }
     var url by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var m3uUrl by remember { mutableStateOf("") }
+    var m3uName by remember { mutableStateOf("") }
     val urlFocus = remember { FocusRequester() }
     val userFocus = remember { FocusRequester() }
     val passFocus = remember { FocusRequester() }
+    val m3uUrlFocus = remember { FocusRequester() }
+    val m3uNameFocus = remember { FocusRequester() }
     val addFocus = remember { FocusRequester() }
     val cancelFocus = remember { FocusRequester() }
+    val xtreamTabFocus = remember { FocusRequester() }
+    val m3uTabFocus = remember { FocusRequester() }
+
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val dialogWidth = cfg.screenWidthDp.dp.coerceAtMost(560.dp) * 0.85f
+    val dialogMaxHeight = cfg.screenHeightDp.dp * 0.9f
 
     androidx.compose.ui.window.Dialog(
         onDismissRequest = { if (!isAdding) onDismiss() },
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
         Box(
             Modifier
-                .width(520.dp)
+                .width(dialogWidth)
+                .heightIn(max = dialogMaxHeight)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Surface1)
                 .border(1.dp, Stroke, RoundedCornerShape(20.dp))
-                .padding(28.dp)
+                .padding(horizontal = 24.dp, vertical = 22.dp)
                 .onPreviewKeyEvent { ev ->
                     if (ev.type == KeyEventType.KeyDown &&
                         (ev.key == Key.Back || ev.key == Key.Escape)
@@ -428,7 +450,9 @@ private fun AddPortalDialog(
                     } else false
                 }
         ) {
-            Column {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
@@ -447,54 +471,124 @@ private fun AddPortalDialog(
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(
-                            "Add IPTV Portal",
+                            "Add IPTV Source",
                             color = Color.White,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "Enter your Xtream-Codes credentials",
+                            if (mode == 0) "Enter your Xtream-Codes credentials"
+                            else "Paste your M3U playlist URL",
                             color = TextDim,
                             fontSize = 12.sp,
                         )
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
 
-                DialogField(
-                    label = "Portal URL",
-                    placeholder = "http://example.com:8080",
-                    value = url,
-                    onChange = { url = it },
-                    enabled = !isAdding,
-                    focusRequester = urlFocus,
-                    onDpadDown = { runCatching { userFocus.requestFocus() } },
-                    onDpadUp = null,
-                )
-                Spacer(Modifier.height(12.dp))
-                DialogField(
-                    label = "Username",
-                    placeholder = "username",
-                    value = username,
-                    onChange = { username = it },
-                    enabled = !isAdding,
-                    focusRequester = userFocus,
-                    onDpadDown = { runCatching { passFocus.requestFocus() } },
-                    onDpadUp = { runCatching { urlFocus.requestFocus() } },
-                )
-                Spacer(Modifier.height(12.dp))
-                DialogField(
-                    label = "Password",
-                    placeholder = "password",
-                    value = password,
-                    onChange = { password = it },
-                    enabled = !isAdding,
-                    isPassword = true,
-                    focusRequester = passFocus,
-                    onDpadDown = { runCatching { addFocus.requestFocus() } },
-                    onDpadUp = { runCatching { userFocus.requestFocus() } },
-                )
+                // Mode toggle: Xtream / M3U
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Surface2)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    ModeTab(
+                        label = "Xtream Account",
+                        selected = mode == 0,
+                        enabled = !isAdding,
+                        focusRequester = xtreamTabFocus,
+                        onClick = { mode = 0 },
+                        onDpadRight = { runCatching { m3uTabFocus.requestFocus() } },
+                        onDpadLeft = null,
+                        onDpadDown = {
+                            runCatching {
+                                if (mode == 0) urlFocus.requestFocus()
+                                else m3uUrlFocus.requestFocus()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ModeTab(
+                        label = "M3U Playlist",
+                        selected = mode == 1,
+                        enabled = !isAdding,
+                        focusRequester = m3uTabFocus,
+                        onClick = { mode = 1 },
+                        onDpadRight = null,
+                        onDpadLeft = { runCatching { xtreamTabFocus.requestFocus() } },
+                        onDpadDown = {
+                            runCatching {
+                                if (mode == 0) urlFocus.requestFocus()
+                                else m3uUrlFocus.requestFocus()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                if (mode == 0) {
+                    DialogField(
+                        label = "Portal URL",
+                        placeholder = "http://example.com:8080",
+                        value = url,
+                        onChange = { url = it },
+                        enabled = !isAdding,
+                        focusRequester = urlFocus,
+                        onDpadDown = { runCatching { userFocus.requestFocus() } },
+                        onDpadUp = { runCatching { xtreamTabFocus.requestFocus() } },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(
+                        label = "Username",
+                        placeholder = "username",
+                        value = username,
+                        onChange = { username = it },
+                        enabled = !isAdding,
+                        focusRequester = userFocus,
+                        onDpadDown = { runCatching { passFocus.requestFocus() } },
+                        onDpadUp = { runCatching { urlFocus.requestFocus() } },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(
+                        label = "Password",
+                        placeholder = "password",
+                        value = password,
+                        onChange = { password = it },
+                        enabled = !isAdding,
+                        isPassword = true,
+                        focusRequester = passFocus,
+                        onDpadDown = { runCatching { addFocus.requestFocus() } },
+                        onDpadUp = { runCatching { userFocus.requestFocus() } },
+                    )
+                } else {
+                    DialogField(
+                        label = "Playlist URL",
+                        placeholder = "http://example.com/playlist.m3u",
+                        value = m3uUrl,
+                        onChange = { m3uUrl = it },
+                        enabled = !isAdding,
+                        focusRequester = m3uUrlFocus,
+                        onDpadDown = { runCatching { m3uNameFocus.requestFocus() } },
+                        onDpadUp = { runCatching { m3uTabFocus.requestFocus() } },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(
+                        label = "Display name (optional)",
+                        placeholder = "My playlist",
+                        value = m3uName,
+                        onChange = { m3uName = it },
+                        enabled = !isAdding,
+                        focusRequester = m3uNameFocus,
+                        onDpadDown = { runCatching { addFocus.requestFocus() } },
+                        onDpadUp = { runCatching { m3uUrlFocus.requestFocus() } },
+                    )
+                }
 
                 if (!error.isNullOrEmpty()) {
                     Spacer(Modifier.height(14.dp))
@@ -533,7 +627,7 @@ private fun AddPortalDialog(
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Verifying…",
+                            if (mode == 0) "Verifying…" else "Loading playlist…",
                             color = TextDim,
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f),
@@ -548,7 +642,10 @@ private fun AddPortalDialog(
                             .focusRequester(cancelFocus)
                             .onPreviewKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
-                                    runCatching { passFocus.requestFocus() }; true
+                                    runCatching {
+                                        if (mode == 0) passFocus.requestFocus()
+                                        else m3uNameFocus.requestFocus()
+                                    }; true
                                 } else false
                             },
                     )
@@ -556,12 +653,18 @@ private fun AddPortalDialog(
                     PrimaryButton(
                         label = if (isAdding) "Adding…" else "Add",
                         enabled = !isAdding,
-                        onClick = { onSubmit(url, username, password) },
+                        onClick = {
+                            if (mode == 0) onSubmitXtream(url, username, password)
+                            else onSubmitM3u(m3uUrl, m3uName)
+                        },
                         modifier = Modifier
                             .focusRequester(addFocus)
                             .onPreviewKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
-                                    runCatching { passFocus.requestFocus() }; true
+                                    runCatching {
+                                        if (mode == 0) passFocus.requestFocus()
+                                        else m3uNameFocus.requestFocus()
+                                    }; true
                                 } else false
                             },
                     )
@@ -570,7 +673,76 @@ private fun AddPortalDialog(
         }
     }
 
-    LaunchedEffect(Unit) { runCatching { urlFocus.requestFocus() } }
+    // Initial focus only — don't snap on every mode toggle (which would steal
+    // focus away from the tab the user just selected).
+    LaunchedEffect(Unit) {
+        runCatching { xtreamTabFocus.requestFocus() }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ModeTab(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+    onDpadLeft: (() -> Unit)? = null,
+    onDpadRight: (() -> Unit)? = null,
+    onDpadDown: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val bg = when {
+        selected && focused -> Accent
+        selected -> Accent.copy(alpha = 0.85f)
+        focused -> Surface1
+        else -> Color.Transparent
+    }
+    val border = when {
+        focused && !selected -> Accent.copy(alpha = 0.7f)
+        focused && selected -> Color.White.copy(alpha = 0.5f)
+        else -> Color.Transparent
+    }
+    Card(
+        onClick = { if (enabled) onClick() },
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { ev ->
+                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (ev.key) {
+                    Key.DirectionLeft -> {
+                        if (onDpadLeft != null) { onDpadLeft(); true } else false
+                    }
+                    Key.DirectionRight -> {
+                        if (onDpadRight != null) { onDpadRight(); true } else false
+                    }
+                    Key.DirectionDown -> {
+                        if (onDpadDown != null) { onDpadDown(); true } else false
+                    }
+                    else -> false
+                }
+            },
+        colors = CardDefaults.colors(containerColor = Color.Transparent),
+        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+    ) {
+        Box(
+            Modifier
+                .background(bg)
+                .border(1.5.dp, border, RoundedCornerShape(8.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -1080,22 +1252,24 @@ private fun SectionPickView(state: IptvUiState, vm: IptvViewModel) {
                     .focusRequester(firstFocus),
                 onClick = { vm.openSection(IptvSection.LIVE) },
             )
-            HeroTile(
-                icon = Icons.Filled.Movie,
-                label = "MOVIES",
-                hint = "VOD library",
-                gradient = MovieGrad,
-                modifier = Modifier.weight(1f),
-                onClick = { vm.openSection(IptvSection.VOD) },
-            )
-            HeroTile(
-                icon = Icons.Filled.Tv,
-                label = "SERIES",
-                hint = "TV shows",
-                gradient = SeriesGrad,
-                modifier = Modifier.weight(1f),
-                onClick = { vm.openSection(IptvSection.SERIES) },
-            )
+            if (portal.portal.kind != "m3u") {
+                HeroTile(
+                    icon = Icons.Filled.Movie,
+                    label = "MOVIES",
+                    hint = "VOD library",
+                    gradient = MovieGrad,
+                    modifier = Modifier.weight(1f),
+                    onClick = { vm.openSection(IptvSection.VOD) },
+                )
+                HeroTile(
+                    icon = Icons.Filled.Tv,
+                    label = "SERIES",
+                    hint = "TV shows",
+                    gradient = SeriesGrad,
+                    modifier = Modifier.weight(1f),
+                    onClick = { vm.openSection(IptvSection.SERIES) },
+                )
+            }
         }
     }
     LaunchedEffect(Unit) {

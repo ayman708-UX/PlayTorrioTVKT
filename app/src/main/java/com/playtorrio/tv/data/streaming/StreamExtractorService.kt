@@ -2,7 +2,9 @@ package com.playtorrio.tv.data.streaming
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -20,7 +22,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.io.ByteArrayInputStream
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -51,7 +52,8 @@ object StreamExtractorService {
         Source(5, "4KHDHub",   "https://4khdhub.dad/",   SourceType.HTTP_SCRAPER),
         Source(6, "HDHub4u",   "https://new5.hdhub4u.fo/", SourceType.HTTP_SCRAPER),
         Source(7, "FlixerTV",  "https://theflixertv.to/",  SourceType.HTTP_SCRAPER),
-        Source(8, "VidFun",    "https://vidfun.pro/")
+        Source(8, "VsEmbed",   "https://vsembed.ru/"),
+        Source(9, "Xpass",     "https://play.xpass.top/", SourceType.HTTP_SCRAPER)
     )
 
     private val httpClient = OkHttpClient.Builder()
@@ -70,8 +72,8 @@ object StreamExtractorService {
                  else "https://vidlink.pro/tv/$tmdbId/$season/$episode"
             4 -> if (isMovie) "https://api.rgshows.ru/main/movie/$tmdbId"
                  else "https://api.rgshows.ru/main/tv/$tmdbId/$season/$episode"
-            8 -> if (isMovie) "https://vidfun.pro/movie/$tmdbId"
-                 else "https://vidfun.pro/tv/$tmdbId/$season/$episode"
+            8 -> if (isMovie) "https://vsembed.ru/embed/movie/$tmdbId"
+                 else "https://vsembed.ru/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode"
             // 5 = 4KHDHub, 6 = HDHub4u: URLs built internally by WebStreamrService
             else -> throw IllegalArgumentException("Unknown source: $sourceIdx")
         }
@@ -102,7 +104,20 @@ object StreamExtractorService {
     ): StreamResult? {
         val source = SOURCES.find { it.index == sourceIdx } ?: return null
         return when (source.type) {
-            SourceType.WEBVIEW      -> extractWebView(context, source, buildUrl(sourceIdx, tmdbId, season, episode), timeoutMs)
+            SourceType.WEBVIEW      -> {
+                // VsEmbed wraps its real player in a cloudnestra iframe behind
+                // a sandbox that prevents the WebView from loading it. Resolve
+                // the inner iframe URL ourselves and load it directly.
+                if (sourceIdx == 8) {
+                    val inner = resolveVsEmbedInner(buildUrl(sourceIdx, tmdbId, season, episode))
+                    if (inner != null) {
+                        val innerSource = source.copy(referer = "https://vsembed.ru/")
+                        extractWebView(context, innerSource, inner, timeoutMs)
+                    } else null
+                } else {
+                    extractWebView(context, source, buildUrl(sourceIdx, tmdbId, season, episode), timeoutMs)
+                }
+            }
             SourceType.HTTP_API     -> {
                 // RgShows is behind Cloudflare and frequently hangs OkHttp's request
                 // until the read timeout fires. Cap it aggressively so we don't waste
@@ -116,6 +131,7 @@ object StreamExtractorService {
                 when (sourceIdx) {
                     5 -> WebStreamrService.extractFourKHDHub(tmdbId, season, episode)
                     6 -> WebStreamrService.extractHDHub4u(tmdbId, season, episode)
+                    9 -> WebStreamrService.extractXpass(tmdbId, season, episode)
                     7 -> {
                         val embedResult = WebStreamrService.extractFlixerTVEmbed(tmdbId, season, episode)
                         if (embedResult != null) {
@@ -126,6 +142,60 @@ object StreamExtractorService {
                     else -> null
                 }
             }
+        }
+    }
+
+    // ── VsEmbed iframe resolver ───────────────────────────────────────────────
+
+    /**
+     * vsembed.ru wraps a cloudnestra player in a sandboxed iframe. Loading the
+     * outer page in the WebView fails to bootstrap the inner player. Fetch the
+     * embed page over HTTP, scrape the cloudnestra iframe src, then optionally
+     * dereference one more level (`/rcp/...` → `/prorcp/...`) so the WebView
+     * lands on the actual player document.
+     */
+    private suspend fun resolveVsEmbedInner(embedUrl: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            val outer = httpClient.newCall(
+                Request.Builder()
+                    .url(embedUrl)
+                    .header("User-Agent", ua)
+                    .header("Referer", "https://vsembed.ru/")
+                    .build()
+            ).execute().use { it.body?.string() } ?: return@withContext null
+
+            val iframeMatch = Regex("""<iframe[^>]*id=["']player_iframe["'][^>]*src=["']([^"']+)["']""")
+                .find(outer) ?: return@withContext null
+            val rawSrc = iframeMatch.groupValues[1]
+            val rcpUrl = when {
+                rawSrc.startsWith("//") -> "https:$rawSrc"
+                rawSrc.startsWith("http") -> rawSrc
+                else -> "https://cloudnestra.com$rawSrc"
+            }
+            Log.i(TAG, "[VsEmbed] Resolved rcp iframe → $rcpUrl")
+
+            // Try to dereference one more level to /prorcp/... (the player itself)
+            val rcp = httpClient.newCall(
+                Request.Builder()
+                    .url(rcpUrl)
+                    .header("User-Agent", ua)
+                    .header("Referer", "https://vsembed.ru/")
+                    .build()
+            ).execute().use { it.body?.string() }
+            val proRcpMatch = rcp?.let {
+                Regex("""src:\s*['"](/prorcp/[^'"]+)['"]""").find(it)
+            }
+            return@withContext if (proRcpMatch != null) {
+                val pro = "https://cloudnestra.com" + proRcpMatch.groupValues[1]
+                Log.i(TAG, "[VsEmbed] Resolved prorcp player → $pro")
+                pro
+            } else {
+                rcpUrl
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[VsEmbed] iframe resolve failed: ${e.message}")
+            null
         }
     }
 
@@ -188,15 +258,8 @@ object StreamExtractorService {
 
                 fun reportStream(streamUrl: String, referer: String) {
                     if (resumed.compareAndSet(false, true) && cont.isActive) {
-                        // Some hosts (e.g. api.lordflix.org via VidFun) issue a single-use
-                        // `?t=<timestamp>` token — stripping it lets ExoPlayer re-fetch.
-                        val cleaned = if (source.name == "VidFun") {
-                            streamUrl.replace(Regex("""[?&]t=\d+"""), "")
-                                .replace(Regex("""\?&"""), "?")
-                                .trimEnd('?', '&')
-                        } else streamUrl
-                        Log.i(TAG, "[${source.name}] ✅ Stream found: $cleaned")
-                        cont.resume(StreamResult(cleaned, referer.ifBlank { source.referer }))
+                        Log.i(TAG, "[${source.name}] ✅ Stream found: $streamUrl")
+                        cont.resume(StreamResult(streamUrl, referer.ifBlank { source.referer }))
                     }
                 }
 
@@ -273,17 +336,6 @@ object StreamExtractorService {
                                     ?: request.requestHeaders["referer"]
                                     ?: source.referer
                                 reportStream(reqUrl, referer)
-                                // VidFun's m3u8 carries a single-use `?t=` token. If the
-                                // WebView's player consumes it first, ExoPlayer's re-fetch
-                                // returns garbage. Block the WebView fetch so the token
-                                // (and the underlying path) stay fresh for ExoPlayer.
-                                if (source.name == "VidFun") {
-                                    return WebResourceResponse(
-                                        "application/vnd.apple.mpegurl",
-                                        "utf-8",
-                                        ByteArrayInputStream(ByteArray(0))
-                                    )
-                                }
                             }
                             return super.shouldInterceptRequest(view, request)
                         }
@@ -358,19 +410,69 @@ object StreamExtractorService {
                                         return false;
                                     }
 
-                                    function tryClick() {
+                                    function clickInDoc(doc, win) {
                                         try {
-                                            if (tryJwPlayer()) return;
-                                            var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-                                            var el = document.elementFromPoint(cx, cy);
-                                            if (el) el.click();
-                                            document.querySelectorAll(
+                                            var cx = (win.innerWidth || 800) / 2;
+                                            var cy = (win.innerHeight || 450) / 2;
+                                            var el = doc.elementFromPoint(cx, cy);
+                                            if (el) {
+                                                try { el.click(); } catch(er) {}
+                                                // Synthesize a real mouse event sequence
+                                                try {
+                                                    ['mousedown','mouseup','click'].forEach(function(type) {
+                                                        var ev = new win.MouseEvent(type, {
+                                                            bubbles: true, cancelable: true, view: win,
+                                                            clientX: cx, clientY: cy, button: 0
+                                                        });
+                                                        el.dispatchEvent(ev);
+                                                    });
+                                                } catch(er) {}
+                                                try {
+                                                    ['pointerdown','pointerup'].forEach(function(type) {
+                                                        var ev = new win.PointerEvent(type, {
+                                                            bubbles: true, cancelable: true, view: win,
+                                                            clientX: cx, clientY: cy, button: 0,
+                                                            pointerType: 'mouse', isPrimary: true
+                                                        });
+                                                        el.dispatchEvent(ev);
+                                                    });
+                                                } catch(er) {}
+                                                try {
+                                                    ['touchstart','touchend'].forEach(function(type) {
+                                                        var ev = new win.TouchEvent(type, {
+                                                            bubbles: true, cancelable: true, view: win
+                                                        });
+                                                        el.dispatchEvent(ev);
+                                                    });
+                                                } catch(er) {}
+                                            }
+                                            doc.querySelectorAll(
                                                 'video, button, [role=button], .play-btn, #play, ' +
                                                 '.vjs-big-play-button, .jw-display-icon-container, ' +
-                                                '.jw-icon-display, .jw-media, #megacloud-player'
+                                                '.jw-icon-display, .jw-media, #megacloud-player, ' +
+                                                '#pl_but, .play, .play_button, .player-container'
                                             ).forEach(function(e) {
                                                 try { e.click(); if (e.tagName === 'VIDEO') e.play(); } catch(er) {}
                                             });
+                                        } catch(e) {}
+                                    }
+
+                                    function walkFrames(win) {
+                                        try {
+                                            clickInDoc(win.document, win);
+                                        } catch(e) {}
+                                        try {
+                                            var frames = win.frames;
+                                            for (var i = 0; i < frames.length; i++) {
+                                                try { walkFrames(frames[i]); } catch(er) {}
+                                            }
+                                        } catch(e) {}
+                                    }
+
+                                    function tryClick() {
+                                        try {
+                                            if (tryJwPlayer()) return;
+                                            walkFrames(window);
                                         } catch(e) {}
                                         setTimeout(tryClick, 1000);
                                     }
@@ -382,6 +484,27 @@ object StreamExtractorService {
 
                     loadUrl(pageUrl, mapOf("Referer" to source.referer))
                 }
+
+                // Periodically dispatch a real touch to the WebView center so cross-origin
+                // iframe players (e.g. cloudnestra inside vsembed) actually start playback.
+                val wv = webView!!
+                val tapRunnable = object : Runnable {
+                    override fun run() {
+                        if (resumed.get() || !cont.isActive) return
+                        try {
+                            val cx = (wv.width.takeIf { it > 0 } ?: 800).toFloat() / 2f
+                            val cy = (wv.height.takeIf { it > 0 } ?: 450).toFloat() / 2f
+                            val now = SystemClock.uptimeMillis()
+                            val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cx, cy, 0)
+                            val up   = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP,   cx, cy, 0)
+                            wv.dispatchTouchEvent(down)
+                            wv.dispatchTouchEvent(up)
+                            down.recycle(); up.recycle()
+                        } catch (_: Exception) {}
+                        wv.postDelayed(this, 1500)
+                    }
+                }
+                wv.postDelayed(tapRunnable, 1500)
 
                 cont.invokeOnCancellation {
                     webView?.apply { stopLoading(); destroy() }

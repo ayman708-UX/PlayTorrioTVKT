@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
@@ -70,6 +71,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         state.showControls,
         state.showSubtitleOverlay,
         state.showAudioOverlay,
+        state.showQualityOverlay,
         state.showPauseOverlay,
         state.showSubtitleStylePanel,
         state.showSourcesPanel,
@@ -79,6 +81,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         if (state.showControls &&
             !state.showSubtitleOverlay &&
             !state.showAudioOverlay &&
+            !state.showQualityOverlay &&
             !state.showSubtitleStylePanel &&
             !state.showSourcesPanel &&
             !state.showEpisodesPanel &&
@@ -89,6 +92,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         } else if (!state.showControls &&
             !state.showSubtitleOverlay &&
             !state.showAudioOverlay &&
+            !state.showQualityOverlay &&
             !state.showPauseOverlay &&
             !state.showSubtitleStylePanel &&
             !state.showEpisodesPanel &&
@@ -130,6 +134,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                 // When any panel is open, let it handle keys
                 val panelOpen = state.showSubtitleOverlay ||
                         state.showAudioOverlay ||
+                        state.showQualityOverlay ||
                         state.showSubtitleStylePanel ||
                         state.showSourcesPanel ||
                         state.showEpisodesPanel ||
@@ -253,6 +258,13 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         // ── Video ──
         VideoRenderer(viewModel, state)
 
+        // ── Custom external-subtitle overlay ──
+        // Renders subtitles parsed by SubtitleCueParser so that delay changes
+        // apply instantly without reloading the player.
+        if (state.customSubtitleLabel != null) {
+            CustomSubtitleOverlay(state)
+        }
+
         // ── Buffering indicator ──
         if ((state.isBuffering || state.isConnecting || state.isReconnecting) && !state.showPauseOverlay) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -293,7 +305,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         val skipSeg = state.activeSkipSegment
         val panelsOpen = state.showEpisodesPanel || state.showEpisodeSourceOverlay ||
             state.showSourcesPanel || state.showSubtitleOverlay ||
-            state.showAudioOverlay || state.showSubtitleStylePanel
+            state.showAudioOverlay || state.showQualityOverlay || state.showQualityOverlay || state.showSubtitleStylePanel
         val hasNextEp = !state.isMovie && state.nextEpisode != null && !state.isSwitchingEpisode
         val nearEnd = state.duration > 0 &&
             state.currentPosition >= (state.duration * 0.90).toLong()
@@ -365,6 +377,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                 !state.showPauseOverlay &&
                 !state.showSubtitleOverlay &&
                 !state.showAudioOverlay &&
+                !state.showQualityOverlay &&
                 !state.showSubtitleStylePanel &&
                 !state.showSourcesPanel &&
                 !state.showEpisodesPanel &&
@@ -420,6 +433,9 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         // ── Audio selection overlay ──
         AudioSelectionOverlay(state, viewModel)
 
+        // ── Quality selection overlay ──
+        QualitySelectionOverlay(state, viewModel)
+
         // ── Subtitle style panel ──
         SubtitleStylePanel(state, viewModel)
     }
@@ -430,6 +446,7 @@ private fun handleBackPress(viewModel: PlayerViewModel, state: PlayerUiState, on
         state.showSubtitleStylePanel -> viewModel.hideSubtitleStylePanel()
         state.showSubtitleOverlay -> viewModel.hideSubtitleOverlay()
         state.showAudioOverlay -> viewModel.hideAudioOverlay()
+        state.showQualityOverlay -> viewModel.hideQualityOverlay()
         state.showSourcesPanel -> viewModel.dismissSourcesPanel()
         state.showEpisodeSourceOverlay -> viewModel.dismissEpisodeSourceOverlay()
         state.showEpisodesPanel -> viewModel.dismissEpisodesPanel()
@@ -509,6 +526,62 @@ private fun VideoRenderer(viewModel: PlayerViewModel, state: PlayerUiState) {
         },
         modifier = Modifier.fillMaxSize()
     )
+}
+
+// ════════════════════════════════════════════════════════════
+// CUSTOM SUBTITLE OVERLAY
+// ════════════════════════════════════════════════════════════
+
+@Composable
+private fun CustomSubtitleOverlay(state: PlayerUiState) {
+    if (state.customSubtitleCues.isEmpty()) return
+    val style = state.subtitleStyle
+    val effectivePosition = state.currentPosition - style.subtitleDelayMs
+    val cue = remember(effectivePosition, state.customSubtitleCues) {
+        com.playtorrio.tv.data.subtitle.SubtitleCueParser
+            .cueAt(state.customSubtitleCues, effectivePosition)
+    } ?: return
+
+    val textColor = Color(style.textColor)
+    val bgColor = Color(style.backgroundColor)
+    val outlineColor = Color(style.outlineColor)
+    val fontSizeSp = (24f * (style.size / 100f)).sp
+    val bottomFraction = (0.06f + (style.verticalOffset / 250f)).coerceIn(0f, 0.4f)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val containerHeight = maxHeight
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = containerHeight * bottomFraction, start = 24.dp, end = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                cue.text.split('\n').forEach { line ->
+                    if (line.isBlank()) return@forEach
+                    val textModifier = if (bgColor.alpha > 0f) {
+                        Modifier
+                            .background(bgColor)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    } else Modifier
+                    Text(
+                        text = line,
+                        modifier = textModifier,
+                        color = textColor,
+                        fontSize = fontSizeSp,
+                        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                        style = androidx.compose.ui.text.TextStyle(
+                            shadow = if (style.outlineEnabled) {
+                                Shadow(color = outlineColor, blurRadius = 6f)
+                            } else null
+                        )
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -659,6 +732,18 @@ private fun PlayerControlsOverlay(
                             icon = Icons.Filled.Audiotrack,
                             contentDescription = "Audio",
                             onClick = { viewModel.showAudioOverlay() },
+                            upFocusRequester = progressBarFocusRequester,
+                            onDownKey = { viewModel.hideControls() },
+                            onFocused = { viewModel.scheduleControlsHide() }
+                        )
+                    }
+
+                    // Quality (only when stream offers multiple variants)
+                    if (state.videoTracks.size > 1) {
+                        ControlButton(
+                            icon = Icons.Filled.Settings,
+                            contentDescription = "Quality",
+                            onClick = { viewModel.showQualityOverlay() },
                             upFocusRequester = progressBarFocusRequester,
                             onDownKey = { viewModel.hideControls() },
                             onFocused = { viewModel.scheduleControlsHide() }
@@ -1764,6 +1849,77 @@ private fun AudioTrackCard(
 @Composable
 private fun SubtitleStylePanel(state: PlayerUiState, viewModel: PlayerViewModel) {
     // No-op: style is now part of the subtitle overlay
+}
+
+// ════════════════════════════════════════════════════════════
+// QUALITY SELECTION OVERLAY
+// ════════════════════════════════════════════════════════════
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun QualitySelectionOverlay(state: PlayerUiState, viewModel: PlayerViewModel) {
+    val firstFocusRequester = remember { FocusRequester() }
+
+    AnimatedVisibility(
+        visible = state.showQualityOverlay,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(200))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .padding(start = 52.dp, end = 52.dp, top = 36.dp, bottom = 76.dp)
+                .focusProperties { exit = { FocusRequester.Cancel } }
+                .focusGroup()
+        ) {
+            Column(
+                modifier = Modifier.align(Alignment.BottomStart),
+                verticalArrangement = Arrangement.Bottom
+            ) {
+                Text(
+                    text = "Quality",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                RailColumn(width = 400.dp, title = "Variants") {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
+                        modifier = Modifier.heightIn(max = 500.dp)
+                    ) {
+                        item {
+                            AudioTrackCard(
+                                name = "Auto",
+                                metadata = "Adapt to bandwidth",
+                                isSelected = state.isQualityAuto,
+                                onClick = { viewModel.selectAutoQuality() },
+                                focusRequester = firstFocusRequester
+                            )
+                        }
+                        itemsIndexed(state.videoTracks) { _, track ->
+                            AudioTrackCard(
+                                name = track.displayName(),
+                                metadata = track.metadata(),
+                                isSelected = !state.isQualityAuto && track.isSelected,
+                                onClick = { viewModel.selectVideoTrack(track) },
+                                focusRequester = null
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        LaunchedEffect(state.showQualityOverlay) {
+            if (state.showQualityOverlay) {
+                delay(100)
+                try { firstFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════

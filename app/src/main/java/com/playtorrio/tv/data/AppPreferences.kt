@@ -20,6 +20,8 @@ object AppPreferences {
     private const val KEY_TORRENT_DISABLE_IPV6 = "torrent_disable_ipv6"
     private const val KEY_TRAILER_AUTOPLAY = "trailer_autoplay"
     private const val KEY_TRAILER_DELAY_SEC = "trailer_delay_sec"
+    private const val KEY_STREAMING_SOURCE_ORDER = "streaming_source_order"
+    private const val KEY_STREAMING_EXTRACT_TIMEOUT_SEC = "streaming_extract_timeout_sec"
     private const val KEY_SAVED_ALBUM_IDS = "saved_album_ids"
     private const val KEY_SAVED_TRACK_IDS = "saved_track_ids"
     private const val KEY_MUSIC_PLAYLISTS = "music_playlists"
@@ -97,6 +99,30 @@ object AppPreferences {
     var trailerDelaySec: Int
         get() = prefs.getInt(KEY_TRAILER_DELAY_SEC, 3)
         set(value) = prefs.edit().putInt(KEY_TRAILER_DELAY_SEC, value.coerceIn(3, 10)).apply()
+
+    /**
+     * Ordered list of streaming source indices (highest priority first).
+     * Defaults to: Videasy, VsEmbed, Vidlink, 111Movies, RgShows, 4KHDHub, HDHub4u, FlixerTV.
+     * Sources missing from this list will be appended in their default order at runtime.
+     */
+    var streamingSourceOrder: List<Int>
+        get() {
+            val raw = prefs.getString(KEY_STREAMING_SOURCE_ORDER, null)
+            if (raw.isNullOrBlank()) return DEFAULT_STREAMING_SOURCE_ORDER
+            return raw.split(',').mapNotNull { it.trim().toIntOrNull() }
+                .ifEmpty { DEFAULT_STREAMING_SOURCE_ORDER }
+        }
+        set(value) {
+            val csv = value.joinToString(",")
+            prefs.edit().putString(KEY_STREAMING_SOURCE_ORDER, csv).apply()
+        }
+
+    /** Per-source extraction timeout in seconds (5–60). */
+    var streamingExtractTimeoutSec: Int
+        get() = prefs.getInt(KEY_STREAMING_EXTRACT_TIMEOUT_SEC, 25)
+        set(value) = prefs.edit().putInt(KEY_STREAMING_EXTRACT_TIMEOUT_SEC, value.coerceIn(5, 60)).apply()
+
+    val DEFAULT_STREAMING_SOURCE_ORDER = listOf(2, 8, 3, 1, 4, 5, 6, 7)
 
     var savedAlbumIds: Set<String>
         get() = prefs.getStringSet(KEY_SAVED_ALBUM_IDS, emptySet()) ?: emptySet()

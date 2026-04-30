@@ -96,6 +96,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -137,13 +139,15 @@ private val NETWORKS = listOf(
     NetworkInfo(3353, "PEACOCK",      Color(0xFF0A0A16), Color(0xFF8888FF),  "https://gifsfornetworks.pages.dev/peacock.gif"),
     NetworkInfo(318,  "STARZ",        Color(0xFF0A0028), Color(0xFF6644CC),  "https://gifsfornetworks.pages.dev/Starz%20Logo%20Animation.gif"),
     NetworkInfo(4,    "BBC",          Color(0xFF111111), Color(0xFFDDDDDD),  "https://gifsfornetworks.pages.dev/BBC%20corporate%20ident%20(2022).gif"),
-    NetworkInfo(1399, "CRUNCHYROLL",  Color(0xFFCC3300), Color(0xFFFF6633),  "https://gifsfornetworks.pages.dev/Crunchyroll%20Logo.gif"),
-    NetworkInfo(2222, "NAT GEO",      Color(0xFF996600), Color(0xFFFFCC00),  "https://gifsfornetworks.pages.dev/Logo%20Animation%202a%20National%20Geographic.gif"),
 )
 
 // Responsive sizing — multiplier applied to all hardcoded card dimensions on
 // the home screen so the layout adapts to the TV's reported screen width.
 private val LocalHomeCardScale = androidx.compose.runtime.compositionLocalOf { 1f }
+
+// Provides a callback that focuses + expands the floating nav pill. Used by row
+// helpers when the user presses Left at the leftmost item (or Up on Continue Watching).
+private val LocalOpenNavBar = androidx.compose.runtime.compositionLocalOf<() -> Unit> { {} }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -186,10 +190,23 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
 
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        androidx.compose.runtime.CompositionLocalProvider(LocalHomeCardScale provides cardScale) {
         val navFocusRequester = remember { FocusRequester() }
         // Set from inside the content branch; called by NavPill to drop focus into the active row.
         val exitNavToContent = remember { mutableStateOf<(() -> Unit)?>(null) }
+        // Increments when user explicitly opens the nav (via Up at row 0). Avoids
+        // auto-expand on initial focus / when returning from another screen.
+        var navOpenTrigger by remember { mutableIntStateOf(0) }
+        // Single callback used by left-edge navigation in rows: focuses the nav
+        // pill AND triggers expansion (matches Up-at-row-0 behavior).
+        val openNavBar: () -> Unit = {
+            runCatching { navFocusRequester.requestFocus() }
+            navOpenTrigger++
+        }
+
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalHomeCardScale provides cardScale,
+            LocalOpenNavBar provides openNavBar,
+        ) {
 
         // === IN-APP UPDATE CHECK (popup is rendered at the end of this Box so it is on top) ===
         var updateInfo by remember { mutableStateOf<com.playtorrio.tv.data.update.UpdateService.UpdateInfo?>(null) }
@@ -296,7 +313,7 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
                                     }
                                     Key.DirectionUp -> {
                                         if (activeRowIndex > 0) { activeRowIndex--; true }
-                                        else { navFocusRequester.requestFocus(); true }
+                                        else { navOpenTrigger++; true }
                                     }
                                     else -> false
                                 }
@@ -500,6 +517,7 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
             navController = navController,
             navFocusRequester = navFocusRequester,
             onExitToContent = { exitNavToContent.value?.invoke() },
+            openTrigger = navOpenTrigger,
         )
 
         // === TRAILER OVERLAY (on top of everything, keeps content rows composed underneath) ===
@@ -565,7 +583,9 @@ private fun NavPill(
     navController: NavController,
     navFocusRequester: FocusRequester,
     onExitToContent: () -> Unit,
+    openTrigger: Int,
 ) {
+    val scale = LocalHomeCardScale.current
     var groupHasFocus by remember { mutableStateOf(false) }
     // expanded follows groupHasFocus but with LaunchedEffect to re-grab focus on expand
     var expanded by remember { mutableStateOf(false) }
@@ -578,16 +598,27 @@ private fun NavPill(
         }
     }
 
+    // Open only when the user explicitly triggers it (Up at top row).
+    // We deliberately do NOT auto-open on the collapsed pill receiving focus,
+    // otherwise it pops open on first load and on returning from other screens.
+    LaunchedEffect(openTrigger) {
+        if (openTrigger > 0) {
+            expanded = true
+        }
+    }
+
     // When expanding, re-request focus so it lands on the Home item
     LaunchedEffect(expanded) {
         if (expanded) {
             kotlinx.coroutines.delay(50)
-            navFocusRequester.requestFocus()
+            runCatching { navFocusRequester.requestFocus() }
         }
     }
 
+    val collapsedSize = (48.dp * scale).coerceAtLeast(32.dp)
+    val expandedWidth = (200.dp * scale).coerceAtLeast(140.dp)
     val pillWidth by animateDpAsState(
-        targetValue = if (expanded) 200.dp else 48.dp,
+        targetValue = if (expanded) expandedWidth else collapsedSize,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -602,7 +633,7 @@ private fun NavPill(
 
     Box(
         modifier = Modifier
-            .padding(start = 20.dp, top = 20.dp)
+            .padding(start = (20.dp * scale), top = (20.dp * scale))
     ) {
         Column(
             modifier = Modifier
@@ -618,7 +649,7 @@ private fun NavPill(
             ) {
                 if (expanded) {
                     Column(
-                        modifier = Modifier.padding(8.dp),
+                        modifier = Modifier.padding((8.dp * scale).coerceAtLeast(4.dp)),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         NavPillItem(
@@ -651,6 +682,20 @@ private fun NavPill(
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
+                            icon = Icons.Filled.MenuBook,
+                            label = "Manga",
+                            isActive = false,
+                            onClicked = { navController.navigate("manga") },
+                            onExitRight = onExitToContent,
+                        )
+                        NavPillItem(
+                            icon = Icons.Filled.AutoStories,
+                            label = "Comics",
+                            isActive = false,
+                            onClicked = { navController.navigate("comics") },
+                            onExitRight = onExitToContent,
+                        )
+                        NavPillItem(
                             icon = Icons.Filled.LiveTv,
                             label = "IPTV",
                             isActive = false,
@@ -676,12 +721,23 @@ private fun NavPill(
                     }
                 } else {
                     Card(
-                        onClick = {},
+                        onClick = { expanded = true },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(collapsedSize)
                             .focusRequester(navFocusRequester)
-                            .onFocusChanged {
-                                if (it.isFocused) expanded = true
+                            .onFocusChanged { isFocused ->
+                                // Track group focus only — do NOT auto-expand here.
+                                // Expansion is driven by openTrigger (user pressing Up
+                                // at top row) or by clicking the menu button.
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionRight -> { onExitToContent(); true }
+                                    Key.DirectionDown -> { onExitToContent(); true }
+                                    Key.Back, Key.Escape -> { onExitToContent(); true }
+                                    else -> false
+                                }
                             },
                         colors = CardDefaults.colors(containerColor = Color.Transparent),
                         shape = CardDefaults.shape(CircleShape)
@@ -694,7 +750,7 @@ private fun NavPill(
                                 imageVector = Icons.Filled.Menu,
                                 contentDescription = "Menu",
                                 tint = Color.White,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size((22.dp * scale).coerceAtLeast(16.dp))
                             )
                         }
                     }
@@ -997,6 +1053,7 @@ private fun NetworkRow(
     val rowState = rememberLazyListState(initialFirstVisibleItemIndex = initialFocusIndex)
     var focusedIndex by remember { mutableIntStateOf(initialFocusIndex) }
     val restoreFocusRequester = remember { FocusRequester() }
+    val openNavBar = LocalOpenNavBar.current
 
     // No manual horizontal scroll — focus-driven bringIntoView handles it smoothly.
 
@@ -1035,7 +1092,7 @@ private fun NetworkRow(
                         focusedIndex = index
                         onItemFocused(index)
                     },
-                    onLeftAtStart = if (index == 0) ({ navFocusRequester.requestFocus() }) else null,
+                    onLeftAtStart = if (index == 0) ({ openNavBar() }) else null,
                     modifier = if (index == initialFocusIndex && initialFocusIndex > 0)
                         Modifier.focusRequester(restoreFocusRequester) else Modifier
                 )
@@ -1158,6 +1215,7 @@ private fun ContentRow(
     val rowState = rememberLazyListState(initialFirstVisibleItemIndex = initialFocusIndex)
     var focusedIndex by remember { mutableIntStateOf(initialFocusIndex) }
     val restoreFocusRequester = remember { FocusRequester() }
+    val openNavBar = LocalOpenNavBar.current
 
     LaunchedEffect(Unit) {
         if (initialFocusIndex > 0) {
@@ -1200,7 +1258,7 @@ private fun ContentRow(
                     onUnfocused = onItemUnfocused,
                     onClicked = { onItemClicked(media) },
                     onLeftAtStart = if (index == 0 && navFocusRequester != null) {
-                        { navFocusRequester.requestFocus() }
+                        { openNavBar() }
                     } else null,
                     focusRequester = if (index == initialFocusIndex && initialFocusIndex > 0) restoreFocusRequester else null
                 )
@@ -1386,6 +1444,7 @@ private fun StremioAddonRow(
     val showAllWidth = if (rowIsPortrait) 92.dp else 84.dp
     val showAllHeight = if (rowIsPortrait) 240.dp else 140.dp
     val restoreFocusRequester = remember { FocusRequester() }
+    val openNavBar = LocalOpenNavBar.current
 
     LaunchedEffect(initialFocusIndex) {
         if (initialFocusIndex > 0) {
@@ -1424,7 +1483,7 @@ private fun StremioAddonRow(
                     onClick = onShowAllClicked,
                     width = showAllWidth,
                     height = showAllHeight,
-                    onLeftAtStart = navFocusRequester?.let { { it.requestFocus() } },
+                    onLeftAtStart = navFocusRequester?.let { { openNavBar() } },
                     focusRequester = if (initialFocusIndex == 0) restoreFocusRequester else null,
                     onFocused = { onItemFocused(0) }
                 )
@@ -1614,6 +1673,7 @@ private fun ContinueWatchingRow(
 ) {
     // Index 0 = edit toggle card, 1..N = watch entries
     val cardRequesters = remember(items.size) { List(items.size + 1) { FocusRequester() } }
+    val openNavBar = LocalOpenNavBar.current
 
     Column(modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)) {
         Row(
@@ -1642,7 +1702,7 @@ private fun ContinueWatchingRow(
                 .focusRequester(focusRequester)
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                        navFocusRequester.requestFocus(); true
+                        openNavBar(); true
                     } else false
                 }
                 .focusGroup(),

@@ -113,6 +113,7 @@ object ProfileManager {
         runCatching {
             appContext.deleteSharedPreferences("playtorrio_prefs_$id")
             appContext.deleteSharedPreferences("stremio_prefs_$id")
+            appContext.deleteSharedPreferences("playtorrio_reading_progress_$id")
         }
         if (activeIdCache == id) {
             setActive(list.first().id)

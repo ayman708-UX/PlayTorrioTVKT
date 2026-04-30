@@ -351,6 +351,58 @@ class IptvViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun addM3u(rawUrl: String, displayName: String) {
+        val url = normalizeM3uUrl(rawUrl)
+        val name = displayName.trim()
+        if (url.isEmpty()) {
+            _ui.value = _ui.value.copy(addError = "Playlist URL is required.")
+            return
+        }
+        val portal = IptvPortal(
+            url = url,
+            username = name, // used as display name
+            password = "",
+            source = "M3U",
+            kind = "m3u",
+        )
+        val k = keyOf(portal)
+        if (_ui.value.verified.any { keyOf(it) == k }) {
+            _ui.value = _ui.value.copy(addError = "This playlist is already saved.")
+            return
+        }
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(isAdding = true, addError = null)
+            val verified = withContext(Dispatchers.IO) {
+                IptvClient.verifyOrNull(portal, timeoutMs = 15000)
+            }
+            if (verified == null) {
+                _ui.value = _ui.value.copy(
+                    isAdding = false,
+                    addError = "Could not download or parse the playlist.",
+                )
+                return@launch
+            }
+            val merged = (_ui.value.verified + verified).distinctBy { keyOf(it) }
+            _ui.value = _ui.value.copy(
+                isAdding = false,
+                showAddDialog = false,
+                addError = null,
+                verified = merged,
+                statusText = "Added ${verified.name.ifBlank { "playlist" }} \u00b7 ${merged.size} saved.",
+            )
+            IptvStore.save(getApplication(), merged)
+        }
+    }
+
+    private fun normalizeM3uUrl(raw: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) return ""
+        if (!s.startsWith("http://", true) && !s.startsWith("https://", true)) {
+            s = "http://$s"
+        }
+        return s
+    }
+
     private fun normalizeUrl(raw: String): String {
         var s = raw.trim()
         if (s.isEmpty()) return ""

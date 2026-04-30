@@ -114,7 +114,12 @@ fun SettingsScreen(navController: NavController) {
                     torrentDisableUpload = AppPreferences.torrentDisableUpload,
                     torrentDisableIpv6 = AppPreferences.torrentDisableIpv6,
                     trailerAutoplay = AppPreferences.trailerAutoplay,
-                    trailerDelaySec = AppPreferences.trailerDelaySec
+                    trailerDelaySec = AppPreferences.trailerDelaySec,
+                    streamingSourceOrder = AppPreferences.streamingSourceOrder,
+                    streamingExtractTimeoutSec = AppPreferences.streamingExtractTimeoutSec,
+                    availableSources = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.map {
+                        SettingsConfigServer.SourceInfo(index = it.index, name = it.name)
+                    }
                 )
             },
             onChangeProposed = { change ->
@@ -234,6 +239,124 @@ fun SettingsScreen(navController: NavController) {
                 onCheckedChange = {
                     streamingMode = it
                     AppPreferences.streamingMode = it
+                }
+            )
+
+            // ── Source priority + extraction timeout ─────────────────────────
+            Spacer(Modifier.height(20.dp))
+
+            var sourceOrder by remember { mutableStateOf(AppPreferences.streamingSourceOrder) }
+            var extractTimeoutSec by remember { mutableStateOf(AppPreferences.streamingExtractTimeoutSec) }
+            // Make sure all known sources appear in the editable list.
+            val mergedOrder = remember(sourceOrder) {
+                val seen = sourceOrder.toMutableSet()
+                val merged = sourceOrder.toMutableList()
+                com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.forEach { s ->
+                    if (s.index !in seen) {
+                        merged.add(s.index)
+                        seen.add(s.index)
+                    }
+                }
+                merged
+            }
+
+            Text(
+                text = "Source Priority",
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Use ◀ ▶ to move a source up or down. Top sources are tried first (in pairs).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(0.6f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                mergedOrder.forEachIndexed { idx, srcIndex ->
+                    val srcName = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES
+                        .firstOrNull { it.index == srcIndex }?.name ?: "Source #$srcIndex"
+                    var rowFocused by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (rowFocused) SurfaceGlass.copy(alpha = 0.14f) else SurfaceGlass)
+                            .border(
+                                1.dp,
+                                if (rowFocused) AccentPrimary.copy(alpha = 0.55f) else SurfaceGlassBorder,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .onFocusChanged { rowFocused = it.hasFocus }
+                            .focusable()
+                            .onKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionLeft -> {
+                                            if (idx > 0) {
+                                                val newList = mergedOrder.toMutableList()
+                                                val tmp = newList[idx]
+                                                newList[idx] = newList[idx - 1]
+                                                newList[idx - 1] = tmp
+                                                sourceOrder = newList
+                                                AppPreferences.streamingSourceOrder = newList
+                                                true
+                                            } else false
+                                        }
+                                        Key.DirectionRight -> {
+                                            if (idx < mergedOrder.lastIndex) {
+                                                val newList = mergedOrder.toMutableList()
+                                                val tmp = newList[idx]
+                                                newList[idx] = newList[idx + 1]
+                                                newList[idx + 1] = tmp
+                                                sourceOrder = newList
+                                                AppPreferences.streamingSourceOrder = newList
+                                                true
+                                            } else false
+                                        }
+                                        else -> false
+                                    }
+                                } else false
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "#${idx + 1}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = AccentPrimary.copy(alpha = 0.8f),
+                            modifier = Modifier.width(36.dp)
+                        )
+                        Text(
+                            text = srcName,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "◀ ▶",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (rowFocused) AccentPrimary else Color.White.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            SettingsSliderRow(
+                title = "Extraction Timeout",
+                description = "Max seconds to wait per source before giving up",
+                value = extractTimeoutSec,
+                range = 5..60,
+                suffix = "s",
+                onValueChange = {
+                    extractTimeoutSec = it
+                    AppPreferences.streamingExtractTimeoutSec = it
                 }
             )
 
@@ -1015,6 +1138,9 @@ fun SettingsScreen(navController: NavController) {
                                 change.proposedTorrentDisableIpv6 != AppPreferences.torrentDisableIpv6
                             val trailerChanged = change.proposedTrailerAutoplay != AppPreferences.trailerAutoplay ||
                                 change.proposedTrailerDelaySec != AppPreferences.trailerDelaySec
+                            val sourceOrderChanged = change.proposedStreamingSourceOrder.isNotEmpty() &&
+                                change.proposedStreamingSourceOrder != AppPreferences.streamingSourceOrder
+                            val timeoutChanged = change.proposedStreamingExtractTimeoutSec != AppPreferences.streamingExtractTimeoutSec
                             if (debridKeyChanged) {
                                 Text(
                                     text = "Debrid API key updated",
@@ -1036,10 +1162,25 @@ fun SettingsScreen(navController: NavController) {
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
+                            if (sourceOrderChanged) {
+                                Text(
+                                    text = "Source priority updated",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (timeoutChanged) {
+                                Text(
+                                    text = "Extraction timeout → ${change.proposedStreamingExtractTimeoutSec}s",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
                             if (toAdd.isEmpty() && toRemove.isEmpty() && change.proposedStreamingMode == AppPreferences.streamingMode
                                 && change.proposedDebridEnabled == AppPreferences.debridEnabled
                                 && change.proposedDebridProvider == AppPreferences.debridProvider
-                                && !debridKeyChanged && !torrentChanged && !trailerChanged) {
+                                && !debridKeyChanged && !torrentChanged && !trailerChanged
+                                && !sourceOrderChanged && !timeoutChanged) {
                                 Text(
                                     text = "No changes detected",
                                     style = MaterialTheme.typography.bodySmall,
@@ -1146,6 +1287,10 @@ fun SettingsScreen(navController: NavController) {
                                                     AppPreferences.torrentDisableIpv6 = captured.proposedTorrentDisableIpv6
                                                     AppPreferences.trailerAutoplay = captured.proposedTrailerAutoplay
                                                     AppPreferences.trailerDelaySec = captured.proposedTrailerDelaySec
+                                                    if (captured.proposedStreamingSourceOrder.isNotEmpty()) {
+                                                        AppPreferences.streamingSourceOrder = captured.proposedStreamingSourceOrder
+                                                    }
+                                                    AppPreferences.streamingExtractTimeoutSec = captured.proposedStreamingExtractTimeoutSec
                                                     runCatching { TorrServerService.ensureInitialized(context) }
 
                                                     val currentUrls = StremioAddonRepository.getAddons()

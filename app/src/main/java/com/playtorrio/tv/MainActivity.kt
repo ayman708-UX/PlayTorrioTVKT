@@ -1,5 +1,6 @@
 package com.playtorrio.tv
 
+import android.content.Context
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,6 +19,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.playtorrio.tv.data.AppPreferences
 import com.playtorrio.tv.data.torrent.TorrServerService
+import com.playtorrio.tv.i18n.AppLocaleManager
 import com.playtorrio.tv.ui.screens.DetailScreen
 import com.playtorrio.tv.ui.screens.HomeScreen
 import com.playtorrio.tv.ui.screens.PersonScreen
@@ -42,6 +44,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocaleManager.wrap(newBase))
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {

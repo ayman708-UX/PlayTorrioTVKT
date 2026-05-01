@@ -47,6 +47,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +60,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.stremio.CatalogDeclaration
 import com.playtorrio.tv.data.stremio.ExtraProperty
 import com.playtorrio.tv.data.stremio.StremioMetaPreview
@@ -120,7 +122,7 @@ fun StremioCatalogScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "CATALOGS",
+                        text = stringResource(R.string.stremio_catalogs),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.1.sp
@@ -198,11 +200,11 @@ fun StremioCatalogScreen(
 
                 if (state.isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Loading catalog...", color = Color.White.copy(alpha = 0.6f))
+                        Text(stringResource(R.string.stremio_catalog_loading), color = Color.White.copy(alpha = 0.6f))
                     }
                 } else if (state.error != null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(state.error ?: "Failed", color = Color(0xFFF87171))
+                        Text(state.error ?: stringResource(R.string.common_failed), color = Color(0xFFF87171))
                     }
                 } else {
                     LazyVerticalGrid(
@@ -240,7 +242,7 @@ fun StremioCatalogScreen(
                     .padding(10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Loading more...", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+                Text(stringResource(R.string.stremio_loading_more), color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
             }
         }
     }

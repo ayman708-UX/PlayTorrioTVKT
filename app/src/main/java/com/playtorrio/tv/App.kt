@@ -1,6 +1,7 @@
 package com.playtorrio.tv
 
 import android.app.Application
+import android.content.Context
 import android.graphics.drawable.Drawable
 import android.os.Build.VERSION.SDK_INT
 import coil.ImageLoader
@@ -9,9 +10,14 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.playtorrio.tv.i18n.AppLocaleManager
 import okhttp3.OkHttpClient
 
 class App : Application(), ImageLoaderFactory {
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(AppLocaleManager.wrap(base))
+    }
+
     override fun newImageLoader(): ImageLoader {
         val okHttp = OkHttpClient.Builder()
             .addInterceptor { chain ->

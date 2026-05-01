@@ -50,6 +50,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.Icon
 import android.net.Uri
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.model.TmdbMedia
 import com.playtorrio.tv.data.stremio.BoardRow
 import com.playtorrio.tv.data.stremio.StremioMetaPreview
@@ -116,7 +118,7 @@ fun SearchScreen(navController: NavController, viewModel: SearchViewModel = view
                     modifier = Modifier.size(28.dp)
                 )
                 Text(
-                    text = "Search",
+                    text = stringResource(R.string.nav_search),
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.Bold, fontSize = 30.sp
                     ),
@@ -139,19 +141,19 @@ fun SearchScreen(navController: NavController, viewModel: SearchViewModel = view
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "Searching…", color = Color.White.copy(alpha = 0.4f), fontSize = 15.sp)
+                    Text(text = stringResource(R.string.search_loading), color = Color.White.copy(alpha = 0.4f), fontSize = 15.sp)
                 }
             } else if (state.query.isBlank()) {
                 if (state.trendingMovies.isNotEmpty()) {
                     SearchResultRow(
-                        title = "Popular Movies", items = state.trendingMovies,
+                        title = stringResource(R.string.search_popular_movies), items = state.trendingMovies,
                         onItemClicked = { navController.navigate("detail/${it.id}/${it.isMovie}") }
                     )
                     Spacer(Modifier.height(24.dp))
                 }
                 if (state.trendingTv.isNotEmpty()) {
                     SearchResultRow(
-                        title = "Popular TV Shows", items = state.trendingTv,
+                        title = stringResource(R.string.search_popular_tv_shows), items = state.trendingTv,
                         onItemClicked = { navController.navigate("detail/${it.id}/${it.isMovie}") }
                     )
                     Spacer(Modifier.height(24.dp))
@@ -168,22 +170,22 @@ fun SearchScreen(navController: NavController, viewModel: SearchViewModel = view
                                 tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(52.dp)
                             )
                             Spacer(Modifier.height(12.dp))
-                            Text(text = "No results found", color = Color.White.copy(alpha = 0.5f),
+                            Text(text = stringResource(R.string.search_no_results), color = Color.White.copy(alpha = 0.5f),
                                 fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                            Text(text = "Try a different search term", color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp)
+                            Text(text = stringResource(R.string.search_try_different), color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp)
                         }
                     }
                 }
                 if (state.movies.isNotEmpty()) {
                     SearchResultRow(
-                        title = "Movies", items = state.movies,
+                        title = stringResource(R.string.search_movies), items = state.movies,
                         onItemClicked = { navController.navigate("detail/${it.id}/true") }
                     )
                     Spacer(Modifier.height(24.dp))
                 }
                 if (state.tvShows.isNotEmpty()) {
                     SearchResultRow(
-                        title = "TV Shows", items = state.tvShows,
+                        title = stringResource(R.string.search_tv_shows), items = state.tvShows,
                         onItemClicked = { navController.navigate("detail/${it.id}/false") }
                     )
                     Spacer(Modifier.height(24.dp))
@@ -196,7 +198,7 @@ fun SearchScreen(navController: NavController, viewModel: SearchViewModel = view
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Searching addons…",
+                            text = stringResource(R.string.search_addons_loading),
                             color = Color.White.copy(alpha = 0.3f),
                             fontSize = 13.sp
                         )
@@ -262,7 +264,7 @@ private fun SearchInputField(
         decorationBox = { innerTextField ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 if (query.isEmpty()) {
-                    Text(text = "Search movies, TV shows…", color = Color.White.copy(alpha = 0.3f), fontSize = 18.sp)
+                    Text(text = stringResource(R.string.search_placeholder), color = Color.White.copy(alpha = 0.3f), fontSize = 18.sp)
                 }
                 innerTextField()
             }
@@ -367,7 +369,7 @@ private fun SearchMediaCard(media: TmdbMedia, onClicked: () -> Unit) {
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = if (media.isMovie) "MOVIE" else "TV",
+                    text = if (media.isMovie) stringResource(R.string.search_media_type_movie) else stringResource(R.string.search_media_type_tv),
                     color = Color.White, fontSize = 9.sp,
                     fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
                 )

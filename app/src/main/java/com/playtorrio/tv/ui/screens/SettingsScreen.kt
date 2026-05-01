@@ -1,5 +1,6 @@
 package com.playtorrio.tv.ui.screens
 
+import android.app.Activity
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -38,6 +39,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -48,8 +51,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.tv.material3.*
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.AppPreferences
 import com.playtorrio.tv.data.torrent.TorrServerService
+import com.playtorrio.tv.i18n.AppLocaleManager
 import com.playtorrio.tv.data.stremio.InstalledAddon
 import com.playtorrio.tv.data.stremio.StremioAddonRepository
 import com.playtorrio.tv.server.DeviceIpAddress
@@ -68,9 +73,11 @@ private val SurfaceGlassBorder = Color.White.copy(alpha = 0.1f)
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    var appLanguage by remember { mutableStateOf(AppLocaleManager.getAppLanguage(context)) }
 
     // ── Addon state ──────────────────────────────────────────────────────────
     var addons by remember { mutableStateOf(StremioAddonRepository.getAddons()) }
@@ -176,7 +183,7 @@ fun SettingsScreen(navController: NavController) {
             ) {
             // Title
             Text(
-                text = "SETTINGS",
+                text = stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 28.sp,
@@ -201,9 +208,38 @@ fun SettingsScreen(navController: NavController) {
 
             Spacer(Modifier.height(40.dp))
 
+            Text(
+                text = stringResource(R.string.settings_section_language),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.5.sp
+                ),
+                color = Color.White.copy(alpha = 0.4f)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            SettingsChoiceRow(
+                title = stringResource(R.string.settings_language_title),
+                description = stringResource(R.string.settings_language_description),
+                options = listOf(
+                    AppLocaleManager.SYSTEM to stringResource(R.string.settings_language_system),
+                    AppLocaleManager.ENGLISH to stringResource(R.string.settings_language_english),
+                    AppLocaleManager.ITALIAN to stringResource(R.string.settings_language_italian)
+                ),
+                selectedValue = appLanguage,
+                onSelected = { language ->
+                    appLanguage = language
+                    activity?.let { AppLocaleManager.setAppLanguage(it, language) }
+                }
+            )
+
+            Spacer(Modifier.height(40.dp))
+
             // Section header
             Text(
-                text = "STREAMING",
+                text = stringResource(R.string.settings_section_streaming),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
@@ -233,8 +269,8 @@ fun SettingsScreen(navController: NavController) {
             }
 
             SettingsToggleRow(
-                title = "Streaming Mode",
-                description = "Stream torrents in real-time without waiting for full download",
+                title = stringResource(R.string.settings_streaming_mode_title),
+                description = stringResource(R.string.settings_streaming_mode_description),
                 checked = streamingMode,
                 onCheckedChange = {
                     streamingMode = it
@@ -261,13 +297,13 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Text(
-                text = "Source Priority",
+                text = stringResource(R.string.settings_source_priority_title),
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = Color.White
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "Use ◀ ▶ to move a source up or down. Top sources are tried first (in pairs).",
+                text = stringResource(R.string.settings_source_priority_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.5f)
             )
@@ -279,7 +315,7 @@ fun SettingsScreen(navController: NavController) {
             ) {
                 mergedOrder.forEachIndexed { idx, srcIndex ->
                     val srcName = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES
-                        .firstOrNull { it.index == srcIndex }?.name ?: "Source #$srcIndex"
+                        .firstOrNull { it.index == srcIndex }?.name ?: stringResource(R.string.settings_source_number, srcIndex)
                     var rowFocused by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier
@@ -349,8 +385,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
 
             SettingsSliderRow(
-                title = "Extraction Timeout",
-                description = "Max seconds to wait per source before giving up",
+                title = stringResource(R.string.settings_extraction_timeout_title),
+                description = stringResource(R.string.settings_extraction_timeout_description),
                 value = extractTimeoutSec,
                 range = 5..60,
                 suffix = "s",
@@ -364,7 +400,7 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(40.dp))
 
             Text(
-                text = "TORRENT ENGINE",
+                text = stringResource(R.string.settings_section_torrent_engine),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
@@ -376,13 +412,13 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsChoiceRow(
-                title = "Preset",
-                description = "All presets favor faster initial playback; higher modes use more peers and RAM",
+                title = stringResource(R.string.settings_preset_title),
+                description = stringResource(R.string.settings_preset_description),
                 options = listOf(
-                    "safe" to "Safe",
-                    "balanced" to "Balanced",
-                    "turbo" to "Turbo",
-                    "extreme" to "Extreme"
+                    "safe" to stringResource(R.string.settings_preset_safe),
+                    "balanced" to stringResource(R.string.settings_preset_balanced),
+                    "turbo" to stringResource(R.string.settings_preset_turbo),
+                    "extreme" to stringResource(R.string.settings_preset_extreme)
                 ),
                 selectedValue = torrentPreset,
                 onSelected = { preset ->
@@ -402,8 +438,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsChoiceRow(
-                title = "Cache Size",
-                description = "More RAM cache improves seek speed and stability",
+                title = stringResource(R.string.settings_cache_size_title),
+                description = stringResource(R.string.settings_cache_size_description),
                 options = listOf("128" to "128 MB", "256" to "256 MB", "384" to "384 MB", "512" to "512 MB"),
                 selectedValue = torrentCacheMb.toString(),
                 onSelected = { value ->
@@ -418,8 +454,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsChoiceRow(
-                title = "Preload",
-                description = "Startup buffer before playback begins — lower is faster",
+                title = stringResource(R.string.settings_preload_title),
+                description = stringResource(R.string.settings_preload_description),
                 options = listOf("1" to "1%", "2" to "2%", "4" to "4%", "8" to "8%"),
                 selectedValue = torrentPreload.toString(),
                 onSelected = { value ->
@@ -434,8 +470,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsChoiceRow(
-                title = "Read Ahead",
-                description = "Higher values favor forward buffering for smoother streaming",
+                title = stringResource(R.string.settings_read_ahead_title),
+                description = stringResource(R.string.settings_read_ahead_description),
                 options = listOf("85" to "85%", "90" to "90%", "95" to "95%", "99" to "99%"),
                 selectedValue = torrentReadAhead.toString(),
                 onSelected = { value ->
@@ -450,8 +486,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsChoiceRow(
-                title = "Connections",
-                description = "More peers can improve speed but use more CPU and RAM",
+                title = stringResource(R.string.settings_connections_title),
+                description = stringResource(R.string.settings_connections_description),
                 options = listOf("80" to "80", "120" to "120", "200" to "200", "300" to "300"),
                 selectedValue = torrentConnections.toString(),
                 onSelected = { value ->
@@ -466,8 +502,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsToggleRow(
-                title = "Responsive Mode",
-                description = "Sends stream data immediately for faster starts",
+                title = stringResource(R.string.settings_responsive_mode_title),
+                description = stringResource(R.string.settings_responsive_mode_description),
                 checked = torrentResponsive,
                 onCheckedChange = {
                     torrentPreset = "custom"
@@ -481,8 +517,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsToggleRow(
-                title = "Disable Upload",
-                description = "Prioritize downloading over seeding for max playback speed",
+                title = stringResource(R.string.settings_disable_upload_title),
+                description = stringResource(R.string.settings_disable_upload_description),
                 checked = torrentDisableUpload,
                 onCheckedChange = {
                     torrentPreset = "custom"
@@ -496,8 +532,8 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             SettingsToggleRow(
-                title = "Disable IPv6",
-                description = "Helps on networks where IPv6 peers are slow or broken",
+                title = stringResource(R.string.settings_disable_ipv6_title),
+                description = stringResource(R.string.settings_disable_ipv6_description),
                 checked = torrentDisableIpv6,
                 onCheckedChange = {
                     torrentPreset = "custom"
@@ -512,7 +548,7 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(40.dp))
 
             Text(
-                text = "DEBRID",
+                text = stringResource(R.string.settings_section_debrid),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
@@ -529,8 +565,8 @@ fun SettingsScreen(navController: NavController) {
             var tbApiKey by remember { mutableStateOf(AppPreferences.torboxApiKey) }
 
             SettingsToggleRow(
-                title = "Use Debrid for Streams",
-                description = "Resolve magnets instantly via debrid (cached torrents only)",
+                title = stringResource(R.string.settings_use_debrid_title),
+                description = stringResource(R.string.settings_use_debrid_description),
                 checked = debridEnabled,
                 onCheckedChange = {
                     debridEnabled = it
@@ -543,7 +579,7 @@ fun SettingsScreen(navController: NavController) {
 
                 // Provider picker
                 Text(
-                    text = "Provider",
+                    text = stringResource(R.string.settings_provider_label),
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = Color.White.copy(alpha = 0.55f)
                 )
@@ -595,13 +631,13 @@ fun SettingsScreen(navController: NavController) {
                 Spacer(Modifier.height(16.dp))
 
                 // API key field for the selected provider
-                val (keyValue, keyLabel) = if (debridProvider == "realdebrid")
-                    rdApiKey to "Real-Debrid API Key"
+                val (keyValue, keyLabelRes) = if (debridProvider == "realdebrid")
+                    rdApiKey to R.string.settings_realdebrid_api_key
                 else
-                    tbApiKey to "TorBox API Key"
+                    tbApiKey to R.string.settings_torbox_api_key
 
                 Text(
-                    text = keyLabel,
+                    text = stringResource(keyLabelRes),
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = Color.White.copy(alpha = 0.55f)
                 )
@@ -667,7 +703,7 @@ fun SettingsScreen(navController: NavController) {
                     decorationBox = { inner ->
                         if (keyValue.isEmpty()) {
                             Text(
-                                text = "Paste API key…",
+                                text = stringResource(R.string.settings_api_key_placeholder),
                                 style = TextStyle(color = Color.White.copy(alpha = 0.3f), fontSize = 13.sp)
                             )
                         }
@@ -680,7 +716,7 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(40.dp))
 
             Text(
-                text = "TRAILERS",
+                text = stringResource(R.string.settings_section_trailers),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
@@ -695,8 +731,8 @@ fun SettingsScreen(navController: NavController) {
             var trailerDelaySec by remember { mutableStateOf(AppPreferences.trailerDelaySec) }
 
             SettingsToggleRow(
-                title = "Autoplay Trailers",
-                description = "Automatically play trailers on the home screen when an item is focused",
+                title = stringResource(R.string.settings_autoplay_trailers_title),
+                description = stringResource(R.string.settings_autoplay_trailers_description),
                 checked = trailerAutoplay,
                 onCheckedChange = {
                     trailerAutoplay = it
@@ -708,8 +744,8 @@ fun SettingsScreen(navController: NavController) {
                 Spacer(Modifier.height(12.dp))
 
                 SettingsSliderRow(
-                    title = "Trailer Delay",
-                    description = "Seconds to wait before playing a trailer",
+                    title = stringResource(R.string.settings_trailer_delay_title),
+                    description = stringResource(R.string.settings_trailer_delay_description),
                     value = trailerDelaySec,
                     range = 3..10,
                     suffix = "s",
@@ -724,7 +760,7 @@ fun SettingsScreen(navController: NavController) {
             Spacer(Modifier.height(40.dp))
 
             Text(
-                text = "ADDONS",
+                text = stringResource(R.string.settings_section_addons),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
@@ -768,11 +804,11 @@ fun SettingsScreen(navController: NavController) {
                                 result.fold(
                                     onSuccess = { addon ->
                                         addonUrl = ""
-                                        installSuccess = "Installed: ${addon.manifest.name}"
+                                        installSuccess = context.getString(R.string.settings_install_success, addon.manifest.name)
                                         addons = StremioAddonRepository.getAddons()
                                     },
                                     onFailure = { e ->
-                                        installError = e.message ?: "Unknown error"
+                                        installError = e.message ?: context.getString(R.string.settings_unknown_error)
                                     }
                                 )
                                 isInstalling = false
@@ -824,7 +860,7 @@ fun SettingsScreen(navController: NavController) {
                     decorationBox = { inner ->
                         if (addonUrl.isEmpty()) {
                             Text(
-                                text = "Paste addon manifest URL…",
+                                text = stringResource(R.string.settings_addon_url_placeholder),
                                 style = TextStyle(
                                     color = Color.White.copy(alpha = 0.3f),
                                     fontSize = 14.sp
@@ -858,11 +894,11 @@ fun SettingsScreen(navController: NavController) {
                                         result.fold(
                                             onSuccess = { addon ->
                                                 addonUrl = ""
-                                                installSuccess = "Installed: ${addon.manifest.name}"
+                                                installSuccess = context.getString(R.string.settings_install_success, addon.manifest.name)
                                                 addons = StremioAddonRepository.getAddons()
                                             },
                                             onFailure = { e ->
-                                                installError = e.message ?: "Unknown error"
+                                                installError = e.message ?: context.getString(R.string.settings_unknown_error)
                                             }
                                         )
                                         isInstalling = false
@@ -882,7 +918,7 @@ fun SettingsScreen(navController: NavController) {
                         )
                     } else {
                         Text(
-                            text = "Add Addon",
+                            text = stringResource(R.string.settings_add_addon),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold
                             ),
@@ -915,7 +951,7 @@ fun SettingsScreen(navController: NavController) {
             // Installed addons list
             if (addons.isEmpty()) {
                 Text(
-                    text = "No addons installed",
+                    text = stringResource(R.string.settings_no_addons_installed),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.3f)
                 )
@@ -973,7 +1009,7 @@ fun SettingsScreen(navController: NavController) {
                         .padding(horizontal = 20.dp, vertical = 24.dp)
                 ) {
                     Text(
-                        text = "PHONE REMOTE",
+                        text = stringResource(R.string.settings_phone_remote_title),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -983,7 +1019,7 @@ fun SettingsScreen(navController: NavController) {
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Scan to manage settings\nfrom your phone",
+                        text = stringResource(R.string.settings_phone_remote_subtitle),
                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
                         color = Color.White.copy(alpha = 0.45f),
                         textAlign = TextAlign.Center
@@ -993,7 +1029,7 @@ fun SettingsScreen(navController: NavController) {
                     if (qrBitmap != null) {
                         Image(
                             bitmap = qrBitmap!!.asImageBitmap(),
-                            contentDescription = "QR Code",
+                            contentDescription = stringResource(R.string.settings_cd_qr_code),
                             modifier = Modifier
                                 .size(180.dp)
                                 .clip(RoundedCornerShape(12.dp)),
@@ -1008,7 +1044,7 @@ fun SettingsScreen(navController: NavController) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (serverUrl == null) "No network" else "Generating…",
+                                text = if (serverUrl == null) stringResource(R.string.settings_no_network) else stringResource(R.string.settings_generating),
                                 color = Color.White.copy(alpha = 0.3f),
                                 fontSize = 12.sp
                             )
@@ -1067,7 +1103,7 @@ fun SettingsScreen(navController: NavController) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "APPLY CHANGES FROM PHONE?",
+                            text = stringResource(R.string.settings_apply_changes_from_phone),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp,
@@ -1093,35 +1129,35 @@ fun SettingsScreen(navController: NavController) {
                         ) {
                             if (toAdd.isNotEmpty()) {
                                 Text(
-                                    text = "+ ${toAdd.size} addon(s) to install",
+                                    text = pluralStringResource(R.plurals.settings_pending_addons_install, toAdd.size, toAdd.size),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color(0xFF4ADE80)
                                 )
                             }
                             if (toRemove.isNotEmpty()) {
                                 Text(
-                                    text = "− ${toRemove.size} addon(s) to remove",
+                                    text = pluralStringResource(R.plurals.settings_pending_addons_remove, toRemove.size, toRemove.size),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color(0xFFF87171)
                                 )
                             }
                             if (change.proposedStreamingMode != AppPreferences.streamingMode) {
                                 Text(
-                                    text = "Streaming mode → ${if (change.proposedStreamingMode) "ON" else "OFF"}",
+                                    text = stringResource(R.string.settings_streaming_mode_status, if (change.proposedStreamingMode) stringResource(R.string.common_on) else stringResource(R.string.common_off)),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (change.proposedDebridEnabled != AppPreferences.debridEnabled) {
                                 Text(
-                                    text = "Debrid → ${if (change.proposedDebridEnabled) "ON" else "OFF"}",
+                                    text = stringResource(R.string.settings_debrid_status, if (change.proposedDebridEnabled) stringResource(R.string.common_on) else stringResource(R.string.common_off)),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (change.proposedDebridProvider != AppPreferences.debridProvider) {
                                 Text(
-                                    text = "Debrid provider → ${change.proposedDebridProvider}",
+                                    text = stringResource(R.string.settings_debrid_provider_status, change.proposedDebridProvider),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
@@ -1143,35 +1179,35 @@ fun SettingsScreen(navController: NavController) {
                             val timeoutChanged = change.proposedStreamingExtractTimeoutSec != AppPreferences.streamingExtractTimeoutSec
                             if (debridKeyChanged) {
                                 Text(
-                                    text = "Debrid API key updated",
+                                    text = stringResource(R.string.settings_debrid_api_key_updated),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (torrentChanged) {
                                 Text(
-                                    text = "Torrent engine settings updated",
+                                    text = stringResource(R.string.settings_torrent_updated),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (trailerChanged) {
                                 Text(
-                                    text = "Trailer settings updated",
+                                    text = stringResource(R.string.settings_trailer_updated),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (sourceOrderChanged) {
                                 Text(
-                                    text = "Source priority updated",
+                                    text = stringResource(R.string.settings_source_priority_updated),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
                             }
                             if (timeoutChanged) {
                                 Text(
-                                    text = "Extraction timeout → ${change.proposedStreamingExtractTimeoutSec}s",
+                                    text = stringResource(R.string.settings_extraction_timeout_status, change.proposedStreamingExtractTimeoutSec),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
@@ -1182,7 +1218,7 @@ fun SettingsScreen(navController: NavController) {
                                 && !debridKeyChanged && !torrentChanged && !trailerChanged
                                 && !sourceOrderChanged && !timeoutChanged) {
                                 Text(
-                                    text = "No changes detected",
+                                    text = stringResource(R.string.settings_no_changes_detected),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White.copy(alpha = 0.4f)
                                 )
@@ -1198,7 +1234,7 @@ fun SettingsScreen(navController: NavController) {
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                text = "Applying…",
+                                text = stringResource(R.string.settings_applying),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.5f)
                             )
@@ -1238,7 +1274,7 @@ fun SettingsScreen(navController: NavController) {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "Reject",
+                                        text = stringResource(R.string.common_reject),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = if (rejectFocused) Color(0xFFF87171) else Color.White.copy(alpha = 0.6f)
                                     )
@@ -1322,7 +1358,7 @@ fun SettingsScreen(navController: NavController) {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "Apply",
+                                        text = stringResource(R.string.common_apply),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White
                                     )
@@ -1433,7 +1469,7 @@ private fun AddonRow(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.OpenInNew,
-                            contentDescription = "Configure",
+                            contentDescription = stringResource(R.string.settings_cd_configure),
                             tint = if (configFocused) AccentSecondary else Color.White.copy(alpha = 0.5f),
                             modifier = Modifier.size(16.dp)
                         )
@@ -1468,7 +1504,7 @@ private fun AddonRow(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
-                        contentDescription = "Remove",
+                        contentDescription = stringResource(R.string.settings_cd_remove),
                         tint = if (removeFocused) Color(0xFFF87171) else Color.White.copy(alpha = 0.5f),
                         modifier = Modifier.size(16.dp)
                     )

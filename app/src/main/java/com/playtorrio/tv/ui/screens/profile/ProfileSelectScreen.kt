@@ -48,6 +48,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -60,6 +61,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.profile.AvatarCatalog
 import com.playtorrio.tv.data.profile.Profile
 import com.playtorrio.tv.data.profile.ProfileManager
@@ -105,7 +107,7 @@ fun ProfileSelectScreen(navController: NavController) {
                 .padding(horizontal = 32.dp, vertical = 48.dp)
         ) {
             Text(
-                text = if (editing) "Manage Profiles" else "Who's watching?",
+                text = if (editing) stringResource(R.string.profiles_title_manage) else stringResource(R.string.profiles_title_select),
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 36.sp
@@ -170,7 +172,7 @@ fun ProfileSelectScreen(navController: NavController) {
             if (!ProfileManager.canAddMore() && !editing) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = "Maximum of ${ProfileManager.MAX_PROFILES} profiles",
+                    text = stringResource(R.string.profiles_maximum, ProfileManager.MAX_PROFILES),
                     color = Color.White.copy(alpha = 0.4f),
                     fontSize = 12.sp
                 )
@@ -292,7 +294,7 @@ private fun ProfileTile(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Edit,
-                        contentDescription = "Edit",
+                        contentDescription = stringResource(R.string.common_edit),
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
@@ -396,14 +398,14 @@ private fun AddProfileTile(onClick: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Filled.Add,
-                contentDescription = "Add profile",
+                contentDescription = stringResource(R.string.profiles_add),
                 tint = AccentPrimary,
                 modifier = Modifier.size(48.dp)
             )
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Add profile",
+            text = stringResource(R.string.profiles_add),
             color = if (isFocused) AccentPrimary
             else Color.White.copy(alpha = 0.7f),
             fontSize = 14.sp,
@@ -446,7 +448,7 @@ private fun ManageButton(editing: Boolean, onClick: () -> Unit) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (editing) "Done" else "Edit Profiles",
+                text = if (editing) stringResource(R.string.common_done) else stringResource(R.string.profiles_edit_profiles),
                 color = if (isFocused) Color.White else AccentPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
@@ -497,7 +499,7 @@ private fun ProfileEditDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (existing == null) "Create profile" else "Edit profile",
+                    text = if (existing == null) stringResource(R.string.profiles_dialog_create_title) else stringResource(R.string.profiles_dialog_edit_title),
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
@@ -517,7 +519,7 @@ private fun ProfileEditDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "NAME",
+                    text = stringResource(R.string.profiles_name_label),
                     color = Color.White.copy(alpha = 0.45f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -575,7 +577,7 @@ private fun ProfileEditDialog(
                     )
                     if (name.isEmpty()) {
                         Text(
-                            text = "Profile name",
+                            text = stringResource(R.string.profiles_name_placeholder),
                             color = Color.White.copy(alpha = 0.3f),
                             fontSize = 16.sp
                         )
@@ -586,7 +588,7 @@ private fun ProfileEditDialog(
             Spacer(Modifier.height(20.dp))
 
             Text(
-                text = "PICK AN AVATAR",
+                text = stringResource(R.string.profiles_pick_avatar),
                 color = Color.White.copy(alpha = 0.45f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -681,7 +683,7 @@ private fun ProfileEditDialog(
             ) {
                 if (existing != null && canDelete) {
                     DialogActionButton(
-                        label = "Delete",
+                        label = stringResource(R.string.common_delete),
                         icon = Icons.Filled.Delete,
                         accent = Color(0xFFEF4444),
                         filled = false,
@@ -691,7 +693,7 @@ private fun ProfileEditDialog(
                     )
                 }
                 DialogActionButton(
-                    label = if (existing == null) "Create" else "Save",
+                    label = if (existing == null) stringResource(R.string.common_create) else stringResource(R.string.common_save),
                     icon = Icons.Filled.Check,
                     accent = AccentPrimary,
                     filled = true,

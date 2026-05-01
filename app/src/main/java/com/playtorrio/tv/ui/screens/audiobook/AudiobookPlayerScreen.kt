@@ -63,6 +63,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +80,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.audiobook.AudiobookDetail
 import com.playtorrio.tv.data.audiobook.TokybookHeaderInjectingFactory
 import kotlinx.coroutines.delay
@@ -294,11 +297,11 @@ fun AudiobookPlayerScreen(
                         shape = CardDefaults.shape(CircleShape),
                     ) {
                         Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Icon(Icons.Filled.ArrowBack, "Close", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Filled.ArrowBack, stringResource(R.string.common_close), tint = Color.White, modifier = Modifier.size(16.dp))
                         }
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text("Now playing", color = PlayerDim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.player_now_playing), color = PlayerDim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 Spacer(Modifier.height(gapMd))
@@ -353,7 +356,7 @@ fun AudiobookPlayerScreen(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "Chapter ${currentChapter + 1} / ${book.chapters.size}",
+                    stringResource(R.string.audiobook_chapter_progress, currentChapter + 1, book.chapters.size),
                     color = PlayerDim,
                     fontSize = 11.sp,
                 )
@@ -390,14 +393,14 @@ fun AudiobookPlayerScreen(
                 ) {
                     TransportButton(
                         icon = Icons.Filled.SkipPrevious,
-                        label = "Prev chapter",
+                        label = stringResource(R.string.audiobook_prev_chapter),
                         size = sideBtnSize,
                         onClick = { if (currentChapter > 0) loadChapter(currentChapter - 1) },
                         onDpadUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} },
                     )
                     TransportButton(
                         icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        label = if (isPlaying) "Pause" else "Play",
+                        label = if (isPlaying) stringResource(R.string.common_pause) else stringResource(R.string.common_play),
                         size = playSize,
                         isPrimary = true,
                         focusRequester = playFocus,
@@ -406,7 +409,7 @@ fun AudiobookPlayerScreen(
                     )
                     TransportButton(
                         icon = Icons.Filled.SkipNext,
-                        label = "Next chapter",
+                        label = stringResource(R.string.audiobook_next_chapter),
                         size = sideBtnSize,
                         onClick = { if (currentChapter < book.chapters.lastIndex) loadChapter(currentChapter + 1) },
                         onDpadUp = { try { seekFocus.requestFocus() } catch (_: Exception) {} },
@@ -419,9 +422,9 @@ fun AudiobookPlayerScreen(
 
             // ═════════════ RIGHT HALF ═════════════
             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                Text("Chapters", color = Color.White, fontSize = if (compact) 16.sp else 20.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.audiobook_chapters_title), color = Color.White, fontSize = if (compact) 16.sp else 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(2.dp))
-                Text("${book.chapters.size} total", color = PlayerDim, fontSize = 11.sp)
+                Text(pluralStringResource(R.plurals.audiobook_chapters_total, book.chapters.size, book.chapters.size), color = PlayerDim, fontSize = 11.sp)
                 Spacer(Modifier.height(10.dp))
 
                 val listState = rememberLazyListState()

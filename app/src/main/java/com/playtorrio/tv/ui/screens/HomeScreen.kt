@@ -65,6 +65,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,6 +109,7 @@ import androidx.compose.material3.Icon
 import androidx.navigation.NavController
 import com.playtorrio.tv.data.model.TmdbMedia
 import android.net.Uri
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.stremio.BoardRow
 import com.playtorrio.tv.data.stremio.StremioMetaPreview
 import com.playtorrio.tv.data.trailer.YoutubeChunkedDataSourceFactory
@@ -654,7 +656,7 @@ private fun NavPill(
                     ) {
                         NavPillItem(
                             icon = Icons.Filled.Home,
-                            label = "Home",
+                            label = stringResource(R.string.nav_home),
                             isActive = true,
                             onClicked = { /* already on home */ },
                             focusRequester = navFocusRequester,
@@ -662,49 +664,49 @@ private fun NavPill(
                         )
                         NavPillItem(
                             icon = Icons.Filled.Search,
-                            label = "Search",
+                            label = stringResource(R.string.nav_search),
                             isActive = false,
                             onClicked = { navController.navigate("search") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.MusicNote,
-                            label = "Music",
+                            label = stringResource(R.string.nav_music),
                             isActive = false,
                             onClicked = { navController.navigate("music") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.Headphones,
-                            label = "Audiobooks",
+                            label = stringResource(R.string.nav_audiobooks),
                             isActive = false,
                             onClicked = { navController.navigate("audiobooks") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.MenuBook,
-                            label = "Manga",
+                            label = stringResource(R.string.nav_manga),
                             isActive = false,
                             onClicked = { navController.navigate("manga") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.AutoStories,
-                            label = "Comics",
+                            label = stringResource(R.string.nav_comics),
                             isActive = false,
                             onClicked = { navController.navigate("comics") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.LiveTv,
-                            label = "IPTV",
+                            label = stringResource(R.string.nav_iptv),
                             isActive = false,
                             onClicked = { navController.navigate("iptv") },
                             onExitRight = onExitToContent,
                         )
                         NavPillItem(
                             icon = Icons.Filled.Settings,
-                            label = "Settings",
+                            label = stringResource(R.string.nav_settings),
                             isActive = false,
                             onClicked = { navController.navigate("settings") },
                             onExitRight = onExitToContent,
@@ -748,7 +750,7 @@ private fun NavPill(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Menu,
-                                contentDescription = "Menu",
+                                contentDescription = stringResource(R.string.cd_menu),
                                 tint = Color.White,
                                 modifier = Modifier.size((22.dp * scale).coerceAtLeast(16.dp))
                             )
@@ -1943,4 +1945,3 @@ private fun formatWatchTime(ms: Long): String {
 // ============================================================
 // CONTINUE WATCHING ROW
 // ============================================================
-

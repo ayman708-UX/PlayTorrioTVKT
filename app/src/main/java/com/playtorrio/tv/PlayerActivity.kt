@@ -1,5 +1,6 @@
 package com.playtorrio.tv
 
+import android.content.Context
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -8,6 +9,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
+import com.playtorrio.tv.i18n.AppLocaleManager
 import com.playtorrio.tv.ui.screens.player.PlayerScreen
 import com.playtorrio.tv.ui.screens.player.PlayerViewModel
 import com.playtorrio.tv.ui.theme.PlayTorrioTheme
@@ -15,6 +17,10 @@ import com.playtorrio.tv.ui.theme.PlayTorrioTheme
 class PlayerActivity : ComponentActivity() {
 
     private lateinit var viewModel: PlayerViewModel
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocaleManager.wrap(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

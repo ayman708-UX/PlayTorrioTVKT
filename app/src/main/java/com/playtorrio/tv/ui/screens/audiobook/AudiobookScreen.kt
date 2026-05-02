@@ -69,6 +69,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -82,6 +84,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.playtorrio.tv.R
 import com.playtorrio.tv.data.audiobook.AudiobookDetail
 import com.playtorrio.tv.data.audiobook.AudiobookSearchResult
 
@@ -208,7 +211,7 @@ fun AudiobookScreen(navController: NavController) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Accent, modifier = Modifier.size(48.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text("Loading audiobook…", color = Color.White, fontSize = 14.sp)
+                    Text(stringResource(R.string.audiobooks_loading), color = Color.White, fontSize = 14.sp)
                 }
             }
         }
@@ -279,13 +282,13 @@ private fun LeftRail(
                 shape = CardDefaults.shape(CircleShape),
             ) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Icon(Icons.Filled.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.ArrowBack, stringResource(R.string.common_back), tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(Modifier.width(12.dp))
             Icon(Icons.Filled.Headphones, null, tint = Accent, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Audiobooks", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.audiobooks_title), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(Modifier.height(28.dp))
@@ -302,7 +305,7 @@ private fun LeftRail(
         // Browse button
         RailButton(
             icon = Icons.Filled.MenuBook,
-            label = "Browse",
+            label = stringResource(R.string.audiobooks_browse),
             isActive = state.view == AudiobookView.BROWSE,
             onClick = onPickBrowse,
         )
@@ -312,7 +315,7 @@ private fun LeftRail(
         // Saved button
         RailButton(
             icon = if (state.view == AudiobookView.LIKED) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-            label = "Saved (${state.saved.size})",
+            label = stringResource(R.string.audiobooks_saved_button, state.saved.size),
             isActive = state.view == AudiobookView.LIKED,
             onClick = onPickSaved,
         )
@@ -379,7 +382,7 @@ private fun SearchBar(
                 Box(Modifier.fillMaxSize(), Alignment.CenterStart) {
                     if (query.isEmpty()) {
                         Text(
-                            "Search audiobooks…",
+                            stringResource(R.string.audiobooks_search_placeholder),
                             color = Color.White.copy(alpha = 0.3f),
                             fontSize = 14.sp,
                         )
@@ -438,14 +441,14 @@ private fun RailButton(
 @Composable
 private fun Header(state: AudiobookUiState) {
     val title = when {
-        state.view == AudiobookView.LIKED -> "Saved audiobooks"
-        state.query.isNotBlank() -> "Results for \"${state.query}\""
-        else -> "Featured"
+        state.view == AudiobookView.LIKED -> stringResource(R.string.audiobooks_header_saved)
+        state.query.isNotBlank() -> stringResource(R.string.audiobooks_header_results, state.query)
+        else -> stringResource(R.string.audiobooks_header_featured)
     }
     val subtitle = when {
-        state.view == AudiobookView.LIKED -> "${state.saved.size} books"
-        state.query.isNotBlank() -> "${state.results.size} found"
-        else -> "${state.featured.size} books"
+        state.view == AudiobookView.LIKED -> pluralStringResource(R.plurals.audiobooks_books_count, state.saved.size, state.saved.size)
+        state.query.isNotBlank() -> stringResource(R.string.audiobooks_results_found, state.results.size)
+        else -> pluralStringResource(R.plurals.audiobooks_books_count, state.featured.size, state.featured.size)
     }
 
     Column {
@@ -478,8 +481,8 @@ private fun PostersGrid(
     if (isLiked) {
         if (state.saved.isEmpty()) {
             EmptyState(
-                "No saved audiobooks yet",
-                "Open a book and tap the like button to keep it here."
+                stringResource(R.string.audiobooks_empty_saved_title),
+                stringResource(R.string.audiobooks_empty_saved_subtitle)
             )
             return
         }
@@ -505,8 +508,8 @@ private fun PostersGrid(
     val items = if (state.query.isBlank()) state.featured else state.results
     if (items.isEmpty()) {
         EmptyState(
-            if (state.query.isBlank()) "Nothing here yet" else "No results",
-            "Try searching for a title or author."
+            if (state.query.isBlank()) stringResource(R.string.audiobooks_empty_default_title) else stringResource(R.string.audiobooks_empty_no_results_title),
+            stringResource(R.string.audiobooks_empty_subtitle)
         )
         return
     }
@@ -560,20 +563,20 @@ private fun BrowsePager(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PagerButton(
-            label = "Previous",
+            label = stringResource(R.string.common_previous),
             enabled = hasPrev,
             onClick = onPrev,
         )
         Spacer(Modifier.width(20.dp))
         Text(
-            "Page ${page + 1}",
+            stringResource(R.string.common_page_number, page + 1),
             color = Color.White.copy(alpha = 0.85f),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
         )
         Spacer(Modifier.width(20.dp))
         PagerButton(
-            label = "Next",
+            label = stringResource(R.string.common_next),
             enabled = hasNext,
             onClick = onNext,
         )

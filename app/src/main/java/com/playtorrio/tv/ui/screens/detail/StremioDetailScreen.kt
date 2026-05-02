@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.tv.material3.*
 import coil.compose.AsyncImage
+import com.playtorrio.tv.R
 import com.playtorrio.tv.PlayerActivity
 import com.playtorrio.tv.data.stremio.StremioMeta
 import com.playtorrio.tv.data.stremio.StremioService
@@ -181,7 +184,7 @@ fun StremioDetailScreen(
 @Composable
 private fun StremioDetailLoading() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Loading…", color = Color.White.copy(alpha = 0.5f))
+        Text(stringResource(R.string.stremio_loading), color = Color.White.copy(alpha = 0.5f))
     }
 }
 
@@ -324,7 +327,7 @@ private fun StremioDetailContent(
                         // Collection: check if videos have IMDB IDs → show as movie cards
                         val isCollection = videos.any { it.id.startsWith("tt") }
                         Text(
-                            text = "Collection · ${videos.size} movies",
+                            text = pluralStringResource(R.plurals.stremio_collection_movies, videos.size, videos.size),
                             color = Color.White.copy(alpha = 0.55f),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
@@ -427,7 +430,7 @@ private fun WatchButton(onClick: () -> Unit) {
                 modifier = Modifier.size(18.dp)
             )
             Text(
-                text = "Watch",
+                text = stringResource(R.string.common_watch),
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
@@ -462,7 +465,7 @@ private fun SeasonChip(season: Int, isSelected: Boolean, onClick: () -> Unit) {
         )
     ) {
         Text(
-            text = "Season $season",
+            text = stringResource(R.string.stremio_season, season),
             color = if (isSelected) AccentPrimary else Color.White.copy(alpha = 0.7f),
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             fontSize = 12.sp,
@@ -703,8 +706,8 @@ private fun StreamSelectionOverlay(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = if (isLoading) "Searching streams…"
-                    else "${streams.size} stream${if (streams.size != 1) "s" else ""} found",
+                    text = if (isLoading) stringResource(R.string.stremio_searching_streams)
+                    else pluralStringResource(R.plurals.stremio_streams_found, streams.size, streams.size),
                     color = Color.White.copy(alpha = 0.4f),
                     fontSize = 12.sp
                 )
@@ -716,14 +719,14 @@ private fun StreamSelectionOverlay(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Searching add-ons…", color = Color.White.copy(alpha = 0.4f))
+                        Text(stringResource(R.string.stremio_searching_addons), color = Color.White.copy(alpha = 0.4f))
                     }
                 } else if (streams.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No streams found", color = Color.White.copy(alpha = 0.4f))
+                        Text(stringResource(R.string.stremio_no_streams), color = Color.White.copy(alpha = 0.4f))
                     }
                 } else {
                     LaunchedEffect(streams.size) {

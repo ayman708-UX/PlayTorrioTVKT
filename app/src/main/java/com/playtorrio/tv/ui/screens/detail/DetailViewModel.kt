@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.playtorrio.tv.data.api.TmdbClient
 import com.playtorrio.tv.data.model.*
+import com.playtorrio.tv.data.streaming.HttpStreamResult
+import com.playtorrio.tv.data.streaming.PlayTorrioHttpService
 import com.playtorrio.tv.data.stremio.StremioAddonRepository
 import com.playtorrio.tv.data.stremio.StremioService
 import com.playtorrio.tv.data.stremio.StremioStream
@@ -58,19 +60,16 @@ data class DetailUiState(
     val selectedSeason: Int = 1,
     val episodes: List<Episode> = emptyList(),
     val isLoadingEpisodes: Boolean = false,
-    // Torrent overlay
+    // Torrent overlay & Stream picker
     val showTorrentOverlay: Boolean = false,
     val torrentResults: List<TorrentResult> = emptyList(),
     val isLoadingTorrents: Boolean = false,
+    val httpStreams: List<com.playtorrio.tv.data.streaming.HttpStreamResult> = emptyList(),
+    val isLoadingHttpStreams: Boolean = false,
     val torrentSearchLabel: String = "",   // "S01E01" or movie name
     val torrentSeasonNumber: Int? = null,
     val torrentEpisodeNumber: Int? = null,
     val torrentEpisodeTitle: String? = null,
-    // Streaming splash
-    val showStreamingSplash: Boolean = false,
-    val streamingSeasonNumber: Int? = null,
-    val streamingEpisodeNumber: Int? = null,
-    val streamingEpisodeTitle: String? = null,
     // Stremio
     val imdbId: String? = null,
     val stremioStreams: List<StremioStream> = emptyList(),
@@ -104,6 +103,9 @@ class DetailViewModel : ViewModel() {
     private val api = TmdbClient.api
     private val key = TmdbClient.API_KEY
     private var trailerJob: Job? = null
+    private var httpJob: Job? = null
+    private var torrentJob: Job? = null
+    private var stremioJob: Job? = null
 
     fun playTrailer() {
         val state = _uiState.value
@@ -270,9 +272,9 @@ class DetailViewModel : ViewModel() {
             ?.map { CastInfo(it.id, it.name ?: "Unknown", it.mainCharacter, it.profileUrl, it.totalEpisodeCount) }
             ?: emptyList()
 
-        val validSeasons = detail.seasons
-            ?.filter { it.seasonNumber > 0 }
-            ?: emptyList()
+        val validSeasons = (detail.seasons ?: emptyList())
+            .filter { it.seasonNumber > 0 }
+            .sortedBy { it.seasonNumber }
 
         _uiState.value = DetailUiState(
             isLoading = false,
@@ -331,15 +333,17 @@ class DetailViewModel : ViewModel() {
         }
     }
 
-    // ── TORRENT OVERLAY ──
+    // ── STREAM PICKER / TORRENT OVERLAY ──
 
-    fun searchTorrentsForMovie() {
+    fun searchStreamsForMovie() {
         val state = _uiState.value
         val label = "${state.title} (${state.year ?: ""})"
         _uiState.value = state.copy(
             showTorrentOverlay = true,
             isLoadingTorrents = true,
             torrentResults = emptyList(),
+            httpStreams = emptyList(),
+            isLoadingHttpStreams = true,
             torrentSearchLabel = label,
             torrentSeasonNumber = null,
             torrentEpisodeNumber = null,
@@ -347,8 +351,10 @@ class DetailViewModel : ViewModel() {
             stremioStreams = emptyList(),
             isLoadingStremioStreams = true
         )
-        loadStremioStreamsForMovie()
-        viewModelScope.launch {
+
+        // 1. Torrents
+        torrentJob?.cancel()
+        torrentJob = viewModelScope.launch {
             try {
                 val results = TorrentSearchService.search(
                     TorrentSearchRequest(
@@ -366,9 +372,39 @@ class DetailViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(isLoadingTorrents = false)
             }
         }
+
+        // 2. PlayTorrioHTTP (Real-time live scraper suite)
+        httpJob?.cancel()
+        httpJob = viewModelScope.launch {
+            try {
+                val y = state.year?.toIntOrNull()
+                PlayTorrioHttpService.searchLive(
+                    scope = this,
+                    title = state.title,
+                    isMovie = true,
+                    year = y,
+                    seasonNumber = null,
+                    episodeNumber = null,
+                    imdbId = state.imdbId,
+                    tmdbId = state.mediaId,
+                    onStreamFound = { stream ->
+                        _uiState.value = _uiState.value.copy(
+                            httpStreams = _uiState.value.httpStreams + stream
+                        )
+                    }
+                ).join()
+            } catch (e: Exception) {
+                Log.e("DetailViewModel", "HTTP search failed", e)
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoadingHttpStreams = false)
+            }
+        }
+
+        // 3. Stremio Addons
+        loadStremioStreamsForMovie()
     }
 
-    fun searchTorrentsForEpisode(episode: Episode) {
+    fun searchStreamsForEpisode(episode: Episode) {
         val state = _uiState.value
         val sNum = state.selectedSeason
         val eNum = episode.episodeNumber
@@ -377,6 +413,8 @@ class DetailViewModel : ViewModel() {
             showTorrentOverlay = true,
             isLoadingTorrents = true,
             torrentResults = emptyList(),
+            httpStreams = emptyList(),
+            isLoadingHttpStreams = true,
             torrentSearchLabel = label,
             torrentSeasonNumber = sNum,
             torrentEpisodeNumber = eNum,
@@ -384,8 +422,10 @@ class DetailViewModel : ViewModel() {
             stremioStreams = emptyList(),
             isLoadingStremioStreams = true
         )
-        loadStremioStreamsForEpisode(sNum, eNum)
-        viewModelScope.launch {
+
+        // 1. Torrents
+        torrentJob?.cancel()
+        torrentJob = viewModelScope.launch {
             try {
                 val results = TorrentSearchService.search(
                     TorrentSearchRequest(
@@ -404,10 +444,41 @@ class DetailViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(isLoadingTorrents = false)
             }
         }
+
+        // 2. PlayTorrioHTTP (Real-time live scraper suite)
+        httpJob?.cancel()
+        httpJob = viewModelScope.launch {
+            try {
+                val y = state.year?.toIntOrNull()
+                PlayTorrioHttpService.searchLive(
+                    scope = this,
+                    title = state.title,
+                    isMovie = false,
+                    year = y,
+                    seasonNumber = sNum,
+                    episodeNumber = eNum,
+                    imdbId = state.imdbId,
+                    tmdbId = state.mediaId,
+                    onStreamFound = { stream ->
+                        _uiState.value = _uiState.value.copy(
+                            httpStreams = _uiState.value.httpStreams + stream
+                        )
+                    }
+                ).join()
+            } catch (e: Exception) {
+                Log.e("DetailViewModel", "HTTP search failed", e)
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoadingHttpStreams = false)
+            }
+        }
+
+        // 3. Stremio Addons
+        loadStremioStreamsForEpisode(sNum, eNum)
     }
 
     private fun loadStremioStreamsForMovie() {
-        viewModelScope.launch {
+        stremioJob?.cancel()
+        stremioJob = viewModelScope.launch {
             try {
                 val imdbId = ensureImdbId() ?: run {
                     _uiState.value = _uiState.value.copy(isLoadingStremioStreams = false)
@@ -427,7 +498,8 @@ class DetailViewModel : ViewModel() {
     }
 
     private fun loadStremioStreamsForEpisode(season: Int, episode: Int) {
-        viewModelScope.launch {
+        stremioJob?.cancel()
+        stremioJob = viewModelScope.launch {
             try {
                 val imdbId = ensureImdbId() ?: run {
                     _uiState.value = _uiState.value.copy(isLoadingStremioStreams = false)
@@ -462,35 +534,18 @@ class DetailViewModel : ViewModel() {
     }
 
     fun dismissTorrentOverlay() {
+        torrentJob?.cancel()
+        httpJob?.cancel()
+        stremioJob?.cancel()
         _uiState.value = _uiState.value.copy(
             showTorrentOverlay = false,
             torrentResults = emptyList(),
+            httpStreams = emptyList(),
+            isLoadingTorrents = false,
+            isLoadingHttpStreams = false,
             torrentSearchLabel = "",
             stremioStreams = emptyList(),
             isLoadingStremioStreams = false
         )
-    }
-
-    fun showStreamingSplashForMovie() {
-        _uiState.value = _uiState.value.copy(
-            showStreamingSplash = true,
-            streamingSeasonNumber = null,
-            streamingEpisodeNumber = null,
-            streamingEpisodeTitle = null
-        )
-    }
-
-    fun showStreamingSplashForEpisode(episode: Episode) {
-        val sNum = _uiState.value.selectedSeason
-        _uiState.value = _uiState.value.copy(
-            showStreamingSplash = true,
-            streamingSeasonNumber = sNum,
-            streamingEpisodeNumber = episode.episodeNumber,
-            streamingEpisodeTitle = episode.name
-        )
-    }
-
-    fun dismissStreamingSplash() {
-        _uiState.value = _uiState.value.copy(showStreamingSplash = false)
     }
 }

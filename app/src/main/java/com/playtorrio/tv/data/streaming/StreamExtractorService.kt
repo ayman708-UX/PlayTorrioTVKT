@@ -26,7 +26,8 @@ object StreamExtractorService {
         Source(2, "67movies", "https://67movies.nl/", SourceType.HTTP_SCRAPER),
         Source(3, "VsEmbed", "https://vsembed.ru/", SourceType.HTTP_SCRAPER),
         Source(4, "MovieNight", "https://movienig.ht/", SourceType.HTTP_SCRAPER),
-        Source(5, "DownloadEverything", "https://downloadeverythingfromeverywhere.com/", SourceType.HTTP_SCRAPER)
+        Source(5, "DownloadEverything", "https://downloadeverythingfromeverywhere.com/", SourceType.HTTP_SCRAPER),
+        Source(6, "Movy", "https://www.movy.bz/", SourceType.HTTP_SCRAPER)
     )
 
     val httpClient = OkHttpClient.Builder()
@@ -53,6 +54,7 @@ object StreamExtractorService {
                 3 -> VsEmbedExtractor.extract(httpClient, tmdbId, season, episode)
                 4 -> MovieNightExtractor.extract(httpClient, tmdbId, season, episode, title, year, imdbId)
                 5 -> DownloadEverythingExtractor.extract(httpClient, tmdbId, season, episode, title, year, imdbId)
+                6 -> MovyExtractor.extract(tmdbId, season, episode, title, year, imdbId)
                 else -> null
             }
         }

@@ -35,56 +35,39 @@ object MovieNightExtractor {
         Server("salem", "Salem")
     )
 
-    suspend fun extract(
+    suspend fun extractLive(
         client: OkHttpClient,
-        tmdbId: Int,
-        season: Int?,
-        episode: Int?,
-        title: String? = null,
+        title: String,
+        isMovie: Boolean,
         year: Int? = null,
+        season: Int? = null,
+        episode: Int? = null,
         imdbId: String? = null,
-    ): StreamResult? = withContext(Dispatchers.IO) {
+        tmdbId: Int = 0,
+        onStreamFound: (HttpStreamResult) -> Unit
+    ) = withContext(Dispatchers.IO) {
         try {
-            val isMovie = season == null
             var resolvedTitle = title
             var resolvedYear = year
             var resolvedImdbId = imdbId
+            var resolvedTmdbId = tmdbId
 
-            // Resolve missing title/year/imdb if needed
-            if (resolvedTitle.isNullOrBlank() || resolvedImdbId.isNullOrBlank() || resolvedYear == null) {
-                try {
-                    if (isMovie) {
-                        val details = TmdbClient.api.getMovieDetails(tmdbId, TmdbClient.API_KEY)
-                        if (resolvedTitle.isNullOrBlank()) resolvedTitle = details.title
-                        if (resolvedYear == null) resolvedYear = details.releaseDate?.take(4)?.toIntOrNull()
-                        if (resolvedImdbId.isNullOrBlank()) {
-                            val ext = TmdbClient.api.getMovieExternalIds(tmdbId, TmdbClient.API_KEY)
-                            resolvedImdbId = ext.imdbId
-                        }
-                    } else {
-                        val details = TmdbClient.api.getTvDetails(tmdbId, TmdbClient.API_KEY)
-                        if (resolvedTitle.isNullOrBlank()) resolvedTitle = details.name
-                        if (resolvedYear == null) resolvedYear = details.firstAirDate?.take(4)?.toIntOrNull()
-                        if (resolvedImdbId.isNullOrBlank()) {
-                            val ext = TmdbClient.api.getTvExternalIds(tmdbId, TmdbClient.API_KEY)
-                            resolvedImdbId = ext.imdbId
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to fetch extra TMDB details for $tmdbId: ${e.message}")
-                }
+            if (resolvedTmdbId <= 0) {
+                resolvedTmdbId = TmdbIdResolver.resolveTmdbId(
+                    imdbId = imdbId,
+                    title = title,
+                    isMovie = isMovie,
+                    year = year
+                ) ?: 0
             }
 
-            val encTitle = URLEncoder.encode(resolvedTitle ?: "", "UTF-8")
+            val encTitle = URLEncoder.encode(resolvedTitle, "UTF-8")
             val yearQuery = if (resolvedYear != null) "&year=$resolvedYear" else ""
             val imdbQuery = if (!resolvedImdbId.isNullOrBlank()) "&imdbId=$resolvedImdbId" else ""
-            val idToUse = if (tmdbId > 0) tmdbId.toString() else (resolvedImdbId ?: return@withContext null)
+            val idToUse = if (resolvedTmdbId > 0) resolvedTmdbId.toString() else (resolvedImdbId ?: return@withContext)
 
-            Log.i(TAG, "Extracting MovieNight for \"$resolvedTitle\" (id: $idToUse, S:$season E:$episode)")
-
-            // Query priority servers in parallel
             coroutineScope {
-                val deferreds = PRIORITY_SERVERS.map { server ->
+                PRIORITY_SERVERS.map { server ->
                     async {
                         try {
                             val s = season ?: 1
@@ -105,7 +88,7 @@ object MovieNightExtractor {
 
                             val bodyStr = client.newCall(req).execute().use { resp ->
                                 if (resp.isSuccessful) resp.body?.string() else null
-                            } ?: return@async null
+                            } ?: return@async
 
                             if (bodyStr.contains("event: done")) {
                                 val doneIdx = bodyStr.indexOf("event: done")
@@ -120,38 +103,57 @@ object MovieNightExtractor {
                                         for (i in 0 until sources.length()) {
                                             val src = sources.getJSONObject(i)
                                             val rawUrl = src.optString("url")
-                                            if (rawUrl.isNotBlank()) {
-                                                Log.i(TAG, "MovieNight stream found from server ${server.label}: $rawUrl")
-                                                return@async StreamResult(
+                                            if (rawUrl.isNotBlank() && rawUrl.startsWith("http")) {
+                                                val stream = HttpStreamResult(
+                                                    sourceName = "MovieNight (${server.label})",
+                                                    title = "MovieNight · ${server.label}",
+                                                    description = "MovieNight Direct HLS Stream",
                                                     url = rawUrl,
-                                                    referer = "$BASE_URL/",
                                                     headers = mapOf(
                                                         "User-Agent" to UA,
                                                         "Referer" to "$BASE_URL/"
                                                     )
                                                 )
+                                                onStreamFound(stream)
                                             }
                                         }
                                     }
                                 }
                             }
                         } catch (_: Exception) {}
-                        null
                     }
                 }
-
-                // Return first successful result
-                for (deferred in deferreds) {
-                    val res = deferred.await()
-                    if (res != null) {
-                        return@coroutineScope res
-                    }
-                }
-                null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "MovieNight extraction failed: ${e.message}")
-            null
+            Log.e(TAG, "MovieNight live extraction failed", e)
         }
+    }
+
+    suspend fun extract(
+        client: OkHttpClient,
+        tmdbId: Int,
+        season: Int?,
+        episode: Int?,
+        title: String? = null,
+        year: Int? = null,
+        imdbId: String? = null,
+    ): StreamResult? = withContext(Dispatchers.IO) {
+        var result: StreamResult? = null
+        extractLive(
+            client = client,
+            title = title ?: "",
+            isMovie = season == null,
+            year = year,
+            season = season,
+            episode = episode,
+            imdbId = imdbId,
+            tmdbId = tmdbId,
+            onStreamFound = {
+                if (result == null) {
+                    result = StreamResult(it.url, it.headers?.get("Referer") ?: "$BASE_URL/", it.headers)
+                }
+            }
+        )
+        result
     }
 }

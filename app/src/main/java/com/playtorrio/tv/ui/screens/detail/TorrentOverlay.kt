@@ -11,36 +11,22 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,12 +35,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,8 +47,10 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.playtorrio.tv.data.streaming.HttpStreamResult
 import com.playtorrio.tv.data.stremio.StremioStream
 import com.playtorrio.tv.data.torrent.TorrentResult
+import kotlinx.coroutines.delay
 
 private val AccentPrimary = Color(0xFF818CF8)
 private val AccentSecondary = Color(0xFFC084FC)
@@ -82,14 +67,52 @@ fun TorrentOverlay(
     searchLabel: String,
     results: List<TorrentResult>,
     isLoading: Boolean,
+    httpStreams: List<HttpStreamResult> = emptyList(),
+    isLoadingHttpStreams: Boolean = false,
     stremioStreams: List<StremioStream> = emptyList(),
     isLoadingStremioStreams: Boolean = false,
     onDismiss: () -> Unit,
     onTorrentSelected: (TorrentResult) -> Unit,
+    onHttpStreamSelected: (HttpStreamResult) -> Unit = {},
     onStremioStreamSelected: (StremioStream) -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val emptyFocusRequester = remember { FocusRequester() }
+    val panelFocusRequester = remember { FocusRequester() }
+
+    val tabNames = remember(stremioStreams) {
+        val addonNames = stremioStreams.mapNotNull { it.addonName }.distinct()
+        listOf("PlayTorrio", "PlayTorrioHTTP") + addonNames
+    }
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(tabNames.size) {
+        if (selectedTabIndex >= tabNames.size) selectedTabIndex = 0
+    }
+
+    // Auto-focus panel when opened
+    LaunchedEffect(visible) {
+        if (visible) {
+            delay(50)
+            runCatching { panelFocusRequester.requestFocus() }
+        }
+    }
+
+    // Manage focus between active items and empty/loading state
+    LaunchedEffect(visible, selectedTabIndex, results.size, httpStreams.size, stremioStreams.size, isLoading, isLoadingHttpStreams, isLoadingStremioStreams) {
+        if (visible) {
+            val hasItems = when (selectedTabIndex) {
+                0 -> results.isNotEmpty()
+                1 -> httpStreams.isNotEmpty()
+                else -> stremioStreams.any { it.addonName == tabNames.getOrNull(selectedTabIndex) }
+            }
+            if (hasItems) {
+                runCatching { focusRequester.requestFocus() }
+            } else {
+                runCatching { emptyFocusRequester.requestFocus() }
+            }
+        }
+    }
 
     AnimatedVisibility(
         visible = visible,
@@ -102,6 +125,7 @@ fun TorrentOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.85f))
+                .clickable { onDismiss() }
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
                         onDismiss()
@@ -135,28 +159,32 @@ fun TorrentOverlay(
                         shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp)
                     )
                     .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
+                    .clickable(enabled = false) {}
                     .padding(24.dp)
             ) {
-                val tabNames = remember(stremioStreams) {
-                    val addonNames = stremioStreams.mapNotNull { it.addonName }.distinct()
-                    listOf("PlayTorrio") + addonNames
-                }
-                var selectedTabIndex by remember { mutableIntStateOf(0) }
-                LaunchedEffect(tabNames.size) {
-                    if (selectedTabIndex >= tabNames.size) selectedTabIndex = 0
-                }
-
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .focusRequester(panelFocusRequester)
+                        .focusable()
                         .onPreviewKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown) {
                                 when (event.key) {
                                     Key.DirectionLeft -> {
-                                        if (selectedTabIndex > 0) { selectedTabIndex--; true } else false
+                                        if (selectedTabIndex > 0) {
+                                            selectedTabIndex--
+                                            true
+                                        } else false
                                     }
                                     Key.DirectionRight -> {
-                                        if (selectedTabIndex < tabNames.lastIndex) { selectedTabIndex++; true } else false
+                                        if (selectedTabIndex < tabNames.lastIndex) {
+                                            selectedTabIndex++
+                                            true
+                                        } else false
+                                    }
+                                    Key.Back -> {
+                                        onDismiss()
+                                        true
                                     }
                                     else -> false
                                 }
@@ -182,8 +210,11 @@ fun TorrentOverlay(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 text = when {
-                                    selectedTabIndex == 0 && isLoading -> "Searching…"
-                                    selectedTabIndex == 0 -> "${results.size} result${if (results.size != 1) "s" else ""} found"
+                                    selectedTabIndex == 0 && isLoading && results.isEmpty() -> "Searching torrents…"
+                                    selectedTabIndex == 0 -> "${results.size} torrent${if (results.size != 1) "s" else ""} found"
+                                    selectedTabIndex == 1 && isLoadingHttpStreams && httpStreams.isEmpty() -> "Extracting HTTP streams…"
+                                    selectedTabIndex == 1 && isLoadingHttpStreams -> "${httpStreams.size} stream${if (httpStreams.size != 1) "s" else ""} found (extracting…)"
+                                    selectedTabIndex == 1 -> "${httpStreams.size} stream${if (httpStreams.size != 1) "s" else ""} found"
                                     isLoadingStremioStreams -> "Searching add-ons…"
                                     else -> {
                                         val count = stremioStreams.count { it.addonName == tabNames.getOrNull(selectedTabIndex) }
@@ -198,181 +229,235 @@ fun TorrentOverlay(
 
                     Spacer(Modifier.height(8.dp))
 
-                    // Source tabs
+                    // Source tabs (interactive buttons)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         tabNames.forEachIndexed { index, name ->
-                            SourceTab(name = name, isActive = index == selectedTabIndex)
+                            SourceTab(
+                                name = name,
+                                isActive = index == selectedTabIndex,
+                                onClick = { selectedTabIndex = index }
+                            )
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
 
-                    if (selectedTabIndex == 0) {
-                        // PlayTorrio column headers
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "NAME",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
-                                ),
-                                color = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "SIZE",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
-                                ),
-                                color = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.width(80.dp)
-                            )
-                            Text(
-                                text = "S",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
-                                ),
-                                color = GreenSeed.copy(alpha = 0.5f),
-                                modifier = Modifier.width(45.dp)
-                            )
-                            Text(
-                                text = "L",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
-                                ),
-                                color = RedLeech.copy(alpha = 0.5f),
-                                modifier = Modifier.width(45.dp)
-                            )
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-
-                        if (isLoading && results.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                contentAlignment = Alignment.Center
+                    when (selectedTabIndex) {
+                        0 -> {
+                            // ── Tab 0: PlayTorrio (Torrents) ──
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Filled.CloudDownload,
-                                        contentDescription = null,
-                                        tint = AccentPrimary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "NAME",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
+                                    ),
+                                    color = Color.White.copy(alpha = 0.35f),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "SIZE",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
+                                    ),
+                                    color = Color.White.copy(alpha = 0.35f),
+                                    modifier = Modifier.width(80.dp)
+                                )
+                                Text(
+                                    text = "S",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
+                                    ),
+                                    color = GreenSeed.copy(alpha = 0.5f),
+                                    modifier = Modifier.width(45.dp)
+                                )
+                                Text(
+                                    text = "L",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 10.sp
+                                    ),
+                                    color = RedLeech.copy(alpha = 0.5f),
+                                    modifier = Modifier.width(45.dp)
+                                )
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            if (isLoading && results.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CloudDownload,
+                                            contentDescription = null,
+                                            tint = AccentPrimary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            text = "Searching torrents…",
+                                            color = Color.White.copy(alpha = 0.4f),
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
+                            } else if (results.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text(
-                                        text = "Searching sources…",
+                                        text = "No torrents found",
                                         color = Color.White.copy(alpha = 0.4f),
                                         fontSize = 14.sp
                                     )
                                 }
-                            }
-                        } else if (results.isEmpty()) {
-                            LaunchedEffect(selectedTabIndex) {
-                                runCatching { emptyFocusRequester.requestFocus() }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .focusRequester(emptyFocusRequester)
-                                    .focusable(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No torrents found",
-                                    color = Color.White.copy(alpha = 0.4f),
-                                    fontSize = 14.sp
-                                )
-                            }
-                        } else {
-                            LaunchedEffect(results.size) {
-                                if (results.isNotEmpty()) {
-                                    runCatching { focusRequester.requestFocus() }
-                                }
-                            }
-
-                            LazyColumn(
-                                modifier = Modifier.weight(1f).focusGroup(),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                itemsIndexed(results, key = { _, r -> r.magnetLink.hashCode() }) { index, result ->
-                                    TorrentRow(
-                                        result = result,
-                                        onClick = { onTorrentSelected(result) },
-                                        focusRequester = if (index == 0) focusRequester else null
-                                    )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f).focusGroup(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    itemsIndexed(results, key = { _, r -> r.magnetLink.hashCode() }) { index, result ->
+                                        TorrentRow(
+                                            result = result,
+                                            onClick = { onTorrentSelected(result) },
+                                            focusRequester = if (index == 0) focusRequester else null
+                                        )
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        // Addon tab content
-                        val filteredStreams = remember(stremioStreams, selectedTabIndex, tabNames) {
-                            stremioStreams.filter { it.addonName == tabNames.getOrNull(selectedTabIndex) }
-                        }
 
-                        if (isLoadingStremioStreams && filteredStreams.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Filled.CloudDownload,
-                                        contentDescription = null,
-                                        tint = AccentSecondary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(Modifier.height(12.dp))
+                        1 -> {
+                            // ── Tab 1: PlayTorrioHTTP (Real-Time HTTP Streams) ──
+                            if (isLoadingHttpStreams && httpStreams.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(36.dp),
+                                            color = AccentSecondary,
+                                            strokeWidth = 3.dp
+                                        )
+                                        Spacer(Modifier.height(14.dp))
+                                        Text(
+                                            text = "Extracting HTTP streams in real time…",
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else if (httpStreams.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text(
-                                        text = "Searching add-ons…",
+                                        text = "No HTTP streams found",
                                         color = Color.White.copy(alpha = 0.4f),
                                         fontSize = 14.sp
                                     )
                                 }
-                            }
-                        } else if (filteredStreams.isEmpty()) {
-                            LaunchedEffect(selectedTabIndex) {
-                                runCatching { emptyFocusRequester.requestFocus() }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .focusRequester(emptyFocusRequester)
-                                    .focusable(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No streams found",
-                                    color = Color.White.copy(alpha = 0.4f),
-                                    fontSize = 14.sp
-                                )
-                            }
-                        } else {
-                            LaunchedEffect(selectedTabIndex, filteredStreams.size) {
-                                if (filteredStreams.isNotEmpty()) {
-                                    runCatching { focusRequester.requestFocus() }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f).focusGroup(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    itemsIndexed(httpStreams, key = { idx, s -> "http_${s.sourceName}_${s.url}_$idx" }) { index, stream ->
+                                        HttpStreamRow(
+                                            stream = stream,
+                                            onClick = { onHttpStreamSelected(stream) },
+                                            focusRequester = if (index == 0) focusRequester else null
+                                        )
+                                    }
                                 }
                             }
+                        }
 
-                            LazyColumn(
-                                modifier = Modifier.weight(1f).focusGroup(),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                itemsIndexed(filteredStreams, key = { idx, _ -> "stremio_${selectedTabIndex}_$idx" }) { index, stream ->
-                                    StremioStreamRow(
-                                        stream = stream,
-                                        onClick = { onStremioStreamSelected(stream) },
-                                        focusRequester = if (index == 0) focusRequester else null
+                        else -> {
+                            // ── Stremio Addon Tabs ──
+                            val filteredStreams = remember(stremioStreams, selectedTabIndex, tabNames) {
+                                stremioStreams.filter { it.addonName == tabNames.getOrNull(selectedTabIndex) }
+                            }
+
+                            if (isLoadingStremioStreams && filteredStreams.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CloudDownload,
+                                            contentDescription = null,
+                                            tint = AccentSecondary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            text = "Searching add-ons…",
+                                            color = Color.White.copy(alpha = 0.4f),
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
+                            } else if (filteredStreams.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .focusRequester(emptyFocusRequester)
+                                        .focusable(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No streams found",
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        fontSize = 14.sp
                                     )
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f).focusGroup(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    itemsIndexed(filteredStreams, key = { idx, _ -> "stremio_${selectedTabIndex}_$idx" }) { index, stream ->
+                                        StremioStreamRow(
+                                            stream = stream,
+                                            onClick = { onStremioStreamSelected(stream) },
+                                            focusRequester = if (index == 0) focusRequester else null
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -385,36 +470,159 @@ fun TorrentOverlay(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SourceTab(name: String, isActive: Boolean) {
-    Row(
+private fun SourceTab(
+    name: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isActive) AccentPrimary.copy(alpha = 0.15f)
-                else SurfaceGlass
-            )
-            .border(
-                1.dp,
-                if (isActive) AccentPrimary.copy(alpha = 0.4f) else SurfaceGlassBorder,
-                RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = CardDefaults.colors(
+            containerColor = when {
+                isFocused -> AccentPrimary.copy(alpha = 0.25f)
+                isActive -> AccentPrimary.copy(alpha = 0.15f)
+                else -> SurfaceGlass
+            }
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.05f)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(if (isActive) AccentPrimary else Color.White.copy(alpha = 0.3f))
-        )
-        Text(
-            text = name,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
-            ),
-            color = if (isActive) AccentPrimary else Color.White.copy(alpha = 0.5f)
-        )
+                .border(
+                    1.dp,
+                    if (isFocused || isActive) AccentPrimary.copy(alpha = 0.5f) else SurfaceGlassBorder,
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (isActive || isFocused) AccentPrimary else Color.White.copy(alpha = 0.3f))
+            )
+            Text(
+                text = name,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, fontSize = 11.sp
+                ),
+                color = if (isActive || isFocused) AccentPrimary else Color.White.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun HttpStreamRow(
+    stream: HttpStreamResult,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.02f else 1f,
+        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
+        label = "s"
+    )
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(
+                if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                else Modifier
+            )
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = CardDefaults.colors(
+            containerColor = if (isFocused) AccentSecondary.copy(alpha = 0.12f)
+            else Color.Transparent
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
+        scale = CardDefaults.scale(focusedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(AccentTertiary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = AccentTertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stream.sourceName.uppercase(),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        color = AccentSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(AccentSecondary.copy(alpha = 0.15f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                    if (!stream.quality.isNullOrBlank()) {
+                        Text(
+                            text = stream.quality.uppercase(),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GreenSeed,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(GreenSeed.copy(alpha = 0.15f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = stream.title,
+                    color = if (isFocused) Color.White else Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    fontWeight = if (isFocused) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp
+                )
+                if (!stream.description.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = stream.description,
+                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -426,11 +634,6 @@ private fun TorrentRow(
     focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bgAlpha by animateFloatAsState(
-        targetValue = if (isFocused) 0.15f else 0f,
-        animationSpec = tween(200),
-        label = "bg"
-    )
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.02f else 1f,
         animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
@@ -460,13 +663,11 @@ private fun TorrentRow(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Name + badges
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Season pack badge
                     if (result.isSeasonPack) {
                         Row(
                             modifier = Modifier
@@ -491,7 +692,6 @@ private fun TorrentRow(
                             )
                         }
                     }
-                    // Source badge
                     Text(
                         text = result.source.uppercase(),
                         fontSize = 8.sp,
@@ -518,7 +718,6 @@ private fun TorrentRow(
 
             Spacer(Modifier.width(12.dp))
 
-            // Size
             Text(
                 text = result.size,
                 color = Color.White.copy(alpha = 0.6f),
@@ -526,7 +725,6 @@ private fun TorrentRow(
                 modifier = Modifier.width(80.dp)
             )
 
-            // Seeders
             Row(
                 modifier = Modifier.width(45.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -546,7 +744,6 @@ private fun TorrentRow(
                 )
             }
 
-            // Leechers
             Text(
                 text = "${result.leechers}",
                 color = RedLeech.copy(alpha = 0.7f),
@@ -600,7 +797,6 @@ private fun StremioStreamRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Type badge
                     val typeBadge = when {
                         !stream.infoHash.isNullOrBlank() -> Pair("TORRENT", AccentPrimary)
                         stream.url?.startsWith("magnet:", ignoreCase = true) == true -> Pair("TORRENT", AccentPrimary)
@@ -621,7 +817,6 @@ private fun StremioStreamRow(
                             .background(typeBadge.second.copy(alpha = 0.15f))
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     )
-                    // Addon name badge
                     if (!stream.addonName.isNullOrBlank()) {
                         Text(
                             text = stream.addonName.uppercase(),

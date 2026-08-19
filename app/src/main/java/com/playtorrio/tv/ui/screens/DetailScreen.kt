@@ -54,7 +54,6 @@ import com.playtorrio.tv.PlayerActivity
 import com.playtorrio.tv.data.AppPreferences
 import com.playtorrio.tv.data.stremio.StremioService
 import com.playtorrio.tv.data.stremio.StreamRoute
-import com.playtorrio.tv.ui.screens.detail.StreamingSplash
 
 private val AccentPrimary = Color(0xFF818CF8)
 private val AccentSecondary = Color(0xFFC084FC)
@@ -101,13 +100,15 @@ fun DetailScreen(
             else -> DetailContent(state, navController, viewModel, mediaId)
         }
 
-        // Torrent overlay on top of everything
+        // Torrent & Stream overlay on top of everything
         val context = androidx.compose.ui.platform.LocalContext.current
         TorrentOverlay(
             visible = state.showTorrentOverlay,
             searchLabel = state.torrentSearchLabel,
             results = state.torrentResults,
             isLoading = state.isLoadingTorrents,
+            httpStreams = state.httpStreams,
+            isLoadingHttpStreams = state.isLoadingHttpStreams,
             stremioStreams = state.stremioStreams,
             isLoadingStremioStreams = state.isLoadingStremioStreams,
             onDismiss = { viewModel.dismissTorrentOverlay() },
@@ -115,6 +116,30 @@ fun DetailScreen(
                 viewModel.dismissTorrentOverlay()
                 val intent = Intent(context, PlayerActivity::class.java).apply {
                     putExtra("magnetUri", torrent.magnetLink)
+                    putExtra("title", state.title)
+                    putExtra("logoUrl", state.logoUrl)
+                    putExtra("backdropUrl", state.backdropUrl)
+                    putExtra("posterUrl", state.posterUrl)
+                    putExtra("year", state.year)
+                    putExtra("rating", state.voteAverage?.let { String.format("%.1f", it) })
+                    putExtra("overview", state.overview)
+                    putExtra("isMovie", state.isMovie)
+                    state.torrentSeasonNumber?.let { putExtra("seasonNumber", it) }
+                    state.torrentEpisodeNumber?.let { putExtra("episodeNumber", it) }
+                    putExtra("episodeTitle", state.torrentEpisodeTitle)
+                    putExtra("tmdbId", mediaId)
+                    state.imdbId?.let { putExtra("imdbId", it) }
+                }
+                context.startActivity(intent)
+            },
+            onHttpStreamSelected = { stream ->
+                viewModel.dismissTorrentOverlay()
+                val intent = Intent(context, PlayerActivity::class.java).apply {
+                    putExtra("streamUrl", stream.url)
+                    putExtra("streamReferer", stream.headers?.get("Referer") ?: "")
+                    if (stream.headers != null) {
+                        putExtra("streamHeadersJson", org.json.JSONObject(stream.headers).toString())
+                    }
                     putExtra("title", state.title)
                     putExtra("logoUrl", state.logoUrl)
                     putExtra("backdropUrl", state.backdropUrl)
@@ -215,25 +240,6 @@ fun DetailScreen(
                     StreamRoute.Unsupported -> { /* no-op */ }
                 }
             }
-        )
-
-        // Streaming splash — shown instead of torrent overlay when Streaming Mode is ON
-        StreamingSplash(
-            visible = state.showStreamingSplash,
-            backdropUrl = state.backdropUrl,
-            logoUrl = state.logoUrl,
-            title = state.title,
-            year = state.year,
-            rating = state.voteAverage?.let { String.format("%.1f", it) },
-            overview = state.overview,
-            isMovie = state.isMovie,
-            tmdbId = mediaId,
-            seasonNumber = state.streamingSeasonNumber,
-            episodeNumber = state.streamingEpisodeNumber,
-            episodeTitle = state.streamingEpisodeTitle,
-            onDismiss = { viewModel.dismissStreamingSplash() },
-            posterUrl = state.posterUrl,
-            imdbId = state.imdbId
         )
 
         // Trailer overlay
@@ -374,8 +380,7 @@ private fun DetailContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Card(
                             onClick = {
-                                if (AppPreferences.streamingMode) viewModel.showStreamingSplashForMovie()
-                                else viewModel.searchTorrentsForMovie()
+                                viewModel.searchStreamsForMovie()
                             },
                             modifier = Modifier
                                 .onFocusChanged { playFocused = it.isFocused }
@@ -791,8 +796,7 @@ private fun DetailContent(
                     episodes = state.episodes,
                     isLoading = state.isLoadingEpisodes,
                     onEpisodeClick = { episode ->
-                        if (AppPreferences.streamingMode) viewModel.showStreamingSplashForEpisode(episode)
-                        else viewModel.searchTorrentsForEpisode(episode)
+                        viewModel.searchStreamsForEpisode(episode)
                     }
                 )
                 Spacer(Modifier.height(28.dp))

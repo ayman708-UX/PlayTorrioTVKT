@@ -878,15 +878,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun seekTo(positionMs: Long) {
-        player?.seekTo(positionMs.coerceIn(0, player?.duration ?: 0))
+        val dur = player?.duration?.takeIf { it > 0 } ?: 0L
+        player?.seekTo(positionMs.coerceIn(0, dur))
     }
 
     fun skipActiveSegment() {
         val seg = _uiState.value.activeSkipSegment ?: return
         val exo = player ?: return
-        val target = if (seg.endMs == Long.MAX_VALUE) exo.duration else seg.endMs
+        val dur = exo.duration.takeIf { it > 0 } ?: 0L
+        val target = if (seg.endMs == Long.MAX_VALUE) dur else seg.endMs
         Log.i(TAG, "Skipping ${seg.type.label}: seeking to ${target}ms")
-        exo.seekTo(target.coerceAtMost(exo.duration))
+        exo.seekTo(target.coerceAtMost(dur))
         _uiState.update { it.copy(activeSkipSegment = null) }
     }
 
@@ -895,7 +897,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun previewSeekBy(deltaMs: Long) {
         val exo = player ?: return
         val currentPreview = _uiState.value.pendingPreviewSeekPosition ?: exo.currentPosition
-        val newPos = (currentPreview + deltaMs).coerceIn(0, exo.duration)
+        val dur = exo.duration.takeIf { it > 0 } ?: 0L
+        val newPos = (currentPreview + deltaMs).coerceIn(0, dur)
         _uiState.update {
             it.copy(pendingPreviewSeekPosition = newPos, showSeekOverlay = true)
         }
@@ -1343,6 +1346,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun initStreamingPlayer(
         streamUrl: String,
         referer: String,
+        streamHeadersJson: String? = null,
         sourceIndex: Int,
         title: String,
         logoUrl: String?,
@@ -1465,6 +1469,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     createStreamingPlayer(
                         streamUrl = streamUrl, 
                         referer = referer,
+                        streamHeadersJson = streamHeadersJson,
                         animeTracksJson = animeTracksJson,
                         animeOrigin = animeOrigin,
                     )
@@ -1476,6 +1481,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun createStreamingPlayer(
         streamUrl: String,
         referer: String,
+        streamHeadersJson: String? = null,
         animeTracksJson: String? = null,
         animeOrigin: String? = null,
     ) {
@@ -1496,14 +1502,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val headers = buildMap<String, String> {
             if (referer.isNotBlank()) {
                 put("Referer", referer)
-                // Derive origin as scheme + host (e.g. "https://lordflix.org")
-                val origin = animeOrigin ?: try {
-                    val uri = android.net.Uri.parse(referer)
-                    "${uri.scheme}://${uri.host}"
-                } catch (_: Exception) { referer.trimEnd('/') }
-                put("Origin", origin)
+                if (animeOrigin != null) {
+                    put("Origin", animeOrigin)
+                }
             }
-            put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+            if (!streamHeadersJson.isNullOrBlank()) {
+                try {
+                    val obj = org.json.JSONObject(streamHeadersJson)
+                    obj.keys().forEach { key ->
+                        put(key, obj.getString(key))
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse streamHeadersJson", e)
+                }
+            }
+            if (!containsKey("User-Agent")) {
+                put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+            }
         }
 
         val dataSourceFactory = DefaultHttpDataSource.Factory()
@@ -1524,7 +1539,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     try {
                         return dataSource.open(dataSpec)
                     } catch (e: androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-                        throw java.io.IOException("Fatal HTTP Error ${e.responseCode} (Hidden from ExoPlayer to prevent fallback crash)", e)
+                        // DO NOT pass `e` as the cause! ExoPlayer unwraps the cause chain to find InvalidResponseCodeException 
+                        // and will trigger the HlsChunkSource OOB crash if it finds it.
+                        throw java.io.IOException("Fatal HTTP Error ${e.responseCode} (Hidden from ExoPlayer to prevent fallback crash)")
                     }
                 }
             }
@@ -2159,7 +2176,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 tmdbId = state.tmdbId,
                 season = if (state.isMovie) null else state.seasonNumber,
                 episode = if (state.isMovie) null else state.episodeNumber,
-                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L
+                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L,
+                title = state.title,
+                year = state.year?.toIntOrNull(),
+                imdbId = resumeImdbId
             )
             if (result != null) {
                 withContext(Dispatchers.Main) {
@@ -2173,7 +2193,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             connectionStatus = "Loading ${StreamExtractorService.SOURCES.find { it.index == sourceIdx }?.name ?: "source"}…"
                         )
                     }
-                    createStreamingPlayer(result.url, result.referer)
+                    createStreamingPlayer(
+                        result.url,
+                        result.referer,
+                        streamHeadersJson = result.headers?.let { org.json.JSONObject(it).toString() }
+                    )
                 }
             } else {
                 // Extraction failed for this source — fall back to the next one in priority order.
@@ -2435,6 +2459,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     season = sNum,
                     episode = eNum,
                     timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L,
+                    title = s.title,
+                    year = s.year?.toIntOrNull(),
+                    imdbId = resumeImdbId
                 )
                 if (result == null) {
                     _uiState.update {
@@ -2452,7 +2479,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     player?.release()
                     player = null
                     _uiState.update { it.copy(isSwitchingEpisode = false) }
-                    createStreamingPlayer(result.url, result.referer)
+                    createStreamingPlayer(
+                        result.url,
+                        result.referer,
+                        streamHeadersJson = result.headers?.let { org.json.JSONObject(it).toString() }
+                    )
                 }
                 refetchSubsAndSkipForEpisode(episode)
                 computeNextEpisode()
@@ -2511,7 +2542,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     _uiState.update { it.copy(isSwitchingEpisode = false, torrentHash = null) }
                     val referer = headers?.get("Referer") ?: headers?.get("referer") ?: ""
                     if (referer.isNotBlank()) {
-                        createStreamingPlayer(url, referer)
+                        val streamHeadersJson = headers?.let { org.json.JSONObject(it).toString() }
+                        createStreamingPlayer(url, referer, streamHeadersJson = streamHeadersJson)
                     } else {
                         createPlayer(url)
                     }

@@ -341,29 +341,22 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
                         modifier = Modifier.fillMaxWidth().weight(0.57f),
                         contentPadding = PaddingValues(top = 10.dp, bottom = 32.dp)
                     ) {
-                        // Networks row — collapsed (zero-height) when focus has
-                        // moved off it so the hero backdrop has more breathing
-                        // room. The lazy item stays in place so all subsequent
-                        // row indices (and rowFocusRequesters) stay aligned.
+                        // Networks row
                         item(key = "networks_row") {
-                            if (activeRowIndex == 0) {
-                                NetworkRow(
-                                    networks = NETWORKS,
-                                    logoUrlsById = state.networkLogos,
-                                    initialFocusIndex = if (viewModel.lastFocusedRowIndex == 0) viewModel.lastFocusedItemIndex else 0,
-                                    onNetworkClicked = { network, itemIndex ->
-                                        viewModel.saveFocusPosition(0, itemIndex)
-                                        navController.navigate("network/${network.id}")
-                                    },
-                                    onItemFocused = { itemIndex ->
-                                        viewModel.saveFocusPosition(0, itemIndex)
-                                    },
-                                    focusRequester = rowFocusRequesters[0],
-                                    navFocusRequester = navFocusRequester
-                                )
-                            } else {
-                                Spacer(Modifier.height(0.dp))
-                            }
+                            NetworkRow(
+                                networks = NETWORKS,
+                                logoUrlsById = state.networkLogos,
+                                initialFocusIndex = if (viewModel.lastFocusedRowIndex == 0) viewModel.lastFocusedItemIndex else 0,
+                                onNetworkClicked = { network, itemIndex ->
+                                    viewModel.saveFocusPosition(0, itemIndex)
+                                    navController.navigate("network/${network.id}")
+                                },
+                                onItemFocused = { itemIndex ->
+                                    viewModel.saveFocusPosition(0, itemIndex)
+                                },
+                                focusRequester = rowFocusRequesters[0],
+                                navFocusRequester = navFocusRequester
+                            )
                         }
 
                         // Continue Watching row (hidden when empty)
@@ -377,7 +370,8 @@ fun HomeScreen(navController: NavController, viewModel: HomeViewModel = viewMode
                                     navFocusRequester = navFocusRequester,
                                     onItemFocused = { itemIdx -> viewModel.saveFocusPosition(1, itemIdx) },
                                     onItemClicked = { entry ->
-                                        viewModel.saveFocusPosition(1, state.continueWatching.indexOfFirst { it.key == entry.key } + 1)
+                                        val entryIndex = state.continueWatching.indexOfFirst { it.key == entry.key }
+                                        viewModel.saveFocusPosition(1, if (entryIndex >= 0) entryIndex else 0)
                                         when (entry.kind) {
                                             com.playtorrio.tv.data.watch.WatchKind.MAGNET -> {
                                                 val intent = android.content.Intent(navController.context, com.playtorrio.tv.PlayerActivity::class.java).apply {
@@ -1664,149 +1658,72 @@ private fun StremioMetaCard(
 // CONTINUE WATCHING ROW
 // ============================================================
 
-private val ContinueAccent = Color(0xFF818CF8)
-private val ContinuePanel = Color(0xFF1F2233)
-private val ContinuePanelLight = Color(0xFF2A2F45)
-private val ContinueTextDim = Color(0xFF94A3B8)
-
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ContinueWatchingRow(
     items: List<com.playtorrio.tv.data.watch.WatchProgress>,
     editMode: Boolean,
-    initialFocusIndex: Int,
+    initialFocusIndex: Int = 0,
     focusRequester: FocusRequester,
-    navFocusRequester: FocusRequester,
-    onItemFocused: (Int) -> Unit,
+    navFocusRequester: FocusRequester? = null,
+    onItemFocused: (Int) -> Unit = {},
     onItemClicked: (com.playtorrio.tv.data.watch.WatchProgress) -> Unit,
-    onItemRemoved: (com.playtorrio.tv.data.watch.WatchProgress) -> Unit,
-    onLongPress: () -> Unit,
+    onItemRemoved: (com.playtorrio.tv.data.watch.WatchProgress) -> Unit = {},
+    onLongPress: () -> Unit = {},
 ) {
-    // Index 0 = edit toggle card, 1..N = watch entries
-    val cardRequesters = remember(items.size) { List(items.size + 1) { FocusRequester() } }
+    val rowState = rememberLazyListState(initialFirstVisibleItemIndex = initialFocusIndex)
+    val restoreFocusRequester = remember { FocusRequester() }
     val openNavBar = LocalOpenNavBar.current
 
-    Column(modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)) {
+    LaunchedEffect(Unit) {
+        if (initialFocusIndex > 0) {
+            kotlinx.coroutines.delay(200)
+            try { restoreFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    Column(modifier = Modifier.focusGroup()) {
         Row(
+            modifier = Modifier.padding(start = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 48.dp, bottom = 6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                "Continue Watching",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                text = "CONTINUE WATCHING",
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    fontSize = 13.sp
+                ),
+                color = Color.White.copy(alpha = 0.55f)
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (editMode) "Tap a card to remove" else "\u00B7 ${items.size}",
-                color = if (editMode) Color(0xFFEF4444) else ContinueTextDim,
-                fontSize = 11.sp,
-            )
+            if (editMode) {
+                Text(
+                    text = "• Click to remove",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFEF4444)
+                )
+            }
         }
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(start = 48.dp, end = 48.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                        openNavBar(); true
-                    } else false
-                }
-                .focusGroup(),
+            state = rowState,
+            contentPadding = PaddingValues(horizontal = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.focusRequester(focusRequester)
         ) {
-            // First card: edit-mode toggle
-            item(key = "__edit_toggle__") {
-                ContinueEditCard(
-                    active = editMode,
-                    focusRequester = cardRequesters[0],
-                    onClick = onLongPress,
-                    onFocused = { onItemFocused(0) },
-                )
-            }
-            itemsIndexed(items, key = { _, it -> it.key }) { idx, entry ->
+            itemsIndexed(items, key = { _, it -> it.key }) { index, entry ->
                 ContinueWatchingCard(
                     entry = entry,
                     editMode = editMode,
-                    focusRequester = cardRequesters.getOrElse(idx + 1) { FocusRequester() },
-                    onClick = {
+                    onClicked = {
                         if (editMode) onItemRemoved(entry) else onItemClicked(entry)
                     },
-                    onFocused = { onItemFocused(idx + 1) }
+                    onFocused = { onItemFocused(index) },
+                    onLeftAtStart = if (index == 0) ({ openNavBar() }) else null,
+                    focusRequester = if (index == initialFocusIndex && initialFocusIndex > 0) restoreFocusRequester else null
                 )
             }
-        }
-
-        // Auto-focus restore on row arrival
-        LaunchedEffect(initialFocusIndex, items.size) {
-            try {
-                val target = initialFocusIndex.coerceIn(0, items.size)
-                cardRequesters.getOrNull(target)?.requestFocus()
-            } catch (_: Exception) {}
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun ContinueEditCard(
-    active: Boolean,
-    focusRequester: FocusRequester,
-    onClick: () -> Unit,
-    onFocused: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    val border = when {
-        active -> Color(0xFFEF4444)
-        focused -> ContinueAccent
-        else -> Color.Transparent
-    }
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .width((60.dp * LocalHomeCardScale.current).coerceAtLeast(48.dp))
-            .height((70.dp * LocalHomeCardScale.current).coerceAtLeast(54.dp))
-            .focusRequester(focusRequester)
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .border(
-                width = if (focused || active) 2.dp else 0.dp,
-                color = border,
-                shape = RoundedCornerShape(8.dp),
-            ),
-        scale = CardDefaults.scale(focusedScale = 1f),
-        colors = CardDefaults.colors(
-            containerColor = when {
-                active -> Color(0xFFEF4444).copy(alpha = 0.18f)
-                focused -> ContinuePanelLight
-                else -> ContinuePanel
-            },
-        ),
-        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
-    ) {
-        Column(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = if (active) Icons.Filled.Close else Icons.Filled.Edit,
-                contentDescription = if (active) "Done" else "Edit",
-                tint = if (active) Color(0xFFEF4444) else Color.White,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (active) "Done" else "Edit",
-                color = if (active) Color(0xFFEF4444) else ContinueTextDim,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
         }
     }
 }
@@ -1815,143 +1732,151 @@ private fun ContinueEditCard(
 @Composable
 private fun ContinueWatchingCard(
     entry: com.playtorrio.tv.data.watch.WatchProgress,
-    editMode: Boolean,
-    focusRequester: FocusRequester,
-    onClick: () -> Unit,
-    onFocused: () -> Unit,
+    editMode: Boolean = false,
+    onClicked: () -> Unit,
+    onFocused: () -> Unit = {},
+    onLeftAtStart: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null
 ) {
-    var focused by remember { mutableStateOf(false) }
+    var isFocused by remember { mutableStateOf(false) }
+    val s = LocalHomeCardScale.current
     val ratio = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f) else 0f
 
     val episodeBadge = if (!entry.isMovie && entry.seasonNumber != null && entry.episodeNumber != null) {
-        "S%d \u00B7 E%d".format(entry.seasonNumber, entry.episodeNumber)
+        if (!entry.episodeTitle.isNullOrBlank()) {
+            "S${entry.seasonNumber} \u00B7 E${entry.episodeNumber} \u00B7 ${entry.episodeTitle}"
+        } else {
+            "S${entry.seasonNumber} \u00B7 E${entry.episodeNumber}"
+        }
     } else entry.year ?: ""
 
-    Card(
-        onClick = onClick,
+    Box(
         modifier = Modifier
-            .width((230.dp * LocalHomeCardScale.current).coerceAtLeast(180.dp))
-            .height((70.dp * LocalHomeCardScale.current).coerceAtLeast(54.dp))
-            .focusRequester(focusRequester)
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (editMode) Color(0xFFEF4444) else ContinueAccent,
-                shape = RoundedCornerShape(8.dp),
-            ),
-        scale = CardDefaults.scale(focusedScale = 1f),
-        colors = CardDefaults.colors(
-            containerColor = if (focused) ContinuePanelLight else ContinuePanel,
-        ),
-        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+            .width((205.dp * s).coerceAtLeast(160.dp))
+            .aspectRatio(16f / 9f)
     ) {
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .padding(6.dp)
-                    .size(width = 48.dp, height = 70.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(ContinuePanelLight),
-            ) {
-                if (!entry.posterUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = entry.posterUrl,
-                        contentDescription = entry.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        Icon(
-                            Icons.Filled.PlayArrow, null,
-                            tint = ContinueAccent.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp),
+        Card(
+            onClick = onClicked,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .then(
+                    if (isFocused) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = if (editMode) Color(0xFFEF4444) else Color.White.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(10.dp)
                         )
+                    } else Modifier
+                )
+                .onFocusChanged { focusState ->
+                    val wasFocused = isFocused
+                    isFocused = focusState.isFocused
+                    if (!wasFocused && focusState.isFocused) {
+                        onFocused()
                     }
                 }
+                .then(
+                    if (onLeftAtStart != null) {
+                        Modifier.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && isFocused) {
+                                onLeftAtStart()
+                                true
+                            } else false
+                        }
+                    } else Modifier
+                ),
+            scale = CardDefaults.scale(focusedScale = 1f),
+            shape = CardDefaults.shape(RoundedCornerShape(10.dp))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = entry.backdropUrl ?: entry.posterUrl,
+                    contentDescription = entry.title,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(10.dp)),
+                    contentScale = ContentScale.Crop
+                )
+
                 if (editMode) {
                     Box(
-                        Modifier
+                        modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.55f)),
-                        contentAlignment = Alignment.Center,
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Filled.Close, "Remove",
+                            Icons.Filled.Close,
+                            contentDescription = "Remove",
                             tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
-            }
 
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(end = 10.dp, top = 8.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    entry.title,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    when {
-                        episodeBadge.isNotBlank() && entry.episodeTitle != null ->
-                            "$episodeBadge \u00B7 ${entry.episodeTitle}"
-                        episodeBadge.isNotBlank() -> episodeBadge
-                        else -> formatWatchTime(entry.positionMs)
-                    },
-                    color = ContinueTextDim,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    formatWatchTime(entry.positionMs) + (if (entry.durationMs > 0)
-                        " / " + formatWatchTime(entry.durationMs) else ""),
-                    color = ContinueTextDim.copy(alpha = 0.75f),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                )
+                // Title + Subtitle overlay
                 Box(
-                    Modifier
-                        .padding(top = 2.dp)
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0f to Color.Transparent,
+                                    0.3f to Color.Black.copy(alpha = 0.35f),
+                                    1f to Color.Black.copy(alpha = 0.95f)
+                                )
+                            )
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = entry.title,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.3.sp
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (episodeBadge.isNotBlank()) {
+                            Text(
+                                text = episodeBadge,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 9.sp
+                                ),
+                                color = Color.White.copy(alpha = 0.65f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Bottom progress bar (attached at the absolute bottom of the card)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(Color.White.copy(alpha = 0.25f))
                 ) {
                     Box(
-                        Modifier
+                        modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(ratio.coerceAtLeast(0.02f))
-                            .background(ContinueAccent)
+                            .background(if (editMode) Color(0xFFEF4444) else AccentPrimary)
                     )
                 }
             }
         }
     }
 }
-
-private fun formatWatchTime(ms: Long): String {
-    if (ms <= 0L) return "0:00"
-    val totalSec = ms / 1000
-    val h = totalSec / 3600
-    val m = (totalSec % 3600) / 60
-    val s = totalSec % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
-
-// ============================================================
-// CONTINUE WATCHING ROW
-// ============================================================
 

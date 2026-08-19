@@ -109,8 +109,10 @@ object AppPreferences {
         get() {
             val raw = prefs.getString(KEY_STREAMING_SOURCE_ORDER, null)
             if (raw.isNullOrBlank()) return DEFAULT_STREAMING_SOURCE_ORDER
-            return raw.split(',').mapNotNull { it.trim().toIntOrNull() }
-                .ifEmpty { DEFAULT_STREAMING_SOURCE_ORDER }
+            val validIds = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.map { it.index }.toSet()
+            val parsed = raw.split(',').mapNotNull { it.trim().toIntOrNull() }.filter { it in validIds }
+            val missing = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.map { it.index }.filter { it !in parsed }
+            return (parsed + missing).ifEmpty { DEFAULT_STREAMING_SOURCE_ORDER }
         }
         set(value) {
             val csv = value.joinToString(",")
@@ -122,7 +124,7 @@ object AppPreferences {
         get() = prefs.getInt(KEY_STREAMING_EXTRACT_TIMEOUT_SEC, 25)
         set(value) = prefs.edit().putInt(KEY_STREAMING_EXTRACT_TIMEOUT_SEC, value.coerceIn(5, 60)).apply()
 
-    val DEFAULT_STREAMING_SOURCE_ORDER = listOf(2, 8, 3, 1, 4, 5, 6, 7)
+    val DEFAULT_STREAMING_SOURCE_ORDER = listOf(1, 2, 3, 4, 5)
 
     var savedAlbumIds: Set<String>
         get() = prefs.getStringSet(KEY_SAVED_ALBUM_IDS, emptySet()) ?: emptySet()

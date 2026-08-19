@@ -68,6 +68,7 @@ class PlayerActivity : ComponentActivity() {
         if (streamUrl != null) {
             // Streaming mode — direct HLS/MP4 URL from one of the online sources
             val referer = intent.getStringExtra("streamReferer") ?: ""
+            val streamHeadersJson = intent.getStringExtra("streamHeadersJson")
             val sourceIndex = intent.getIntExtra("sourceIndex", 1)
             val animeTracksJson = intent.getStringExtra("animeTracksJson")
             val animeOrigin = intent.getStringExtra("animeOrigin")
@@ -77,6 +78,7 @@ class PlayerActivity : ComponentActivity() {
             viewModel.initStreamingPlayer(
                 streamUrl = streamUrl,
                 referer = referer,
+                streamHeadersJson = streamHeadersJson,
                 sourceIndex = sourceIndex,
                 title = title,
                 logoUrl = logoUrl,

@@ -1,4 +1,4 @@
-﻿# ─── Signing keys / secrets (NEVER commit) ──
+# ─── Signing keys / secrets (NEVER commit) ──
 *.jks
 *.keystore
 key.properties
@@ -25,4 +25,7 @@ out/
 Thumbs.db
 *.swp
 *.log
+log.txt
+logcat.txt
+temp js/
 .vscode/

@@ -113,7 +113,10 @@ fun StreamingSplash(
                                 tmdbId = tmdbId,
                                 season = seasonNumber,
                                 episode = episodeNumber,
-                                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L
+                                timeoutMs = AppPreferences.streamingExtractTimeoutSec * 1000L,
+                                title = title,
+                                year = year?.toIntOrNull(),
+                                imdbId = imdbId
                             )
                             r?.let { it to source }
                         }
@@ -155,6 +158,7 @@ fun StreamingSplash(
                 val intent = Intent(context, PlayerActivity::class.java).apply {
                     putExtra("streamUrl", streamResult.url)
                     putExtra("streamReferer", streamResult.referer)
+                    streamResult.headers?.let { h -> putExtra("streamHeadersJson", org.json.JSONObject(h).toString()) }
                     putExtra("sourceIndex", source.index)
                     putExtra("title", title)
                     putExtra("logoUrl", logoUrl)

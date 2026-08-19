@@ -249,8 +249,9 @@ fun SettingsScreen(navController: NavController) {
             var extractTimeoutSec by remember { mutableStateOf(AppPreferences.streamingExtractTimeoutSec) }
             // Make sure all known sources appear in the editable list.
             val mergedOrder = remember(sourceOrder) {
-                val seen = sourceOrder.toMutableSet()
-                val merged = sourceOrder.toMutableList()
+                val validIds = com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.map { it.index }.toSet()
+                val merged = sourceOrder.filter { it in validIds }.toMutableList()
+                val seen = merged.toMutableSet()
                 com.playtorrio.tv.data.streaming.StreamExtractorService.SOURCES.forEach { s ->
                     if (s.index !in seen) {
                         merged.add(s.index)

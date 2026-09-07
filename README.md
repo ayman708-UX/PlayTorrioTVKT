@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/brand/app_logo_wordmark.png" alt="PlayTorrio TV" width="320" />
+  <img src="PlayTorrio_TV.png" alt="PlayTorrio TV" width="360" />
 
   <p>
     An open-source media and streaming app built specifically for Android TV.

@@ -1,0 +1,20 @@
+package com.playtorrio.tv.domain.model
+
+import androidx.compose.runtime.Immutable
+import com.playtorrio.tv.ui.util.languageCodeToName
+
+@Immutable
+data class Subtitle(
+    val id: String,
+    val url: String,
+    val lang: String,
+    val addonName: String,
+    val addonLogo: String?,
+    val isStreamProvided: Boolean = false
+) {
+    fun getDisplayLanguage(): String = languageCodeToName(lang)
+
+    companion object {
+        fun languageCodeToName(code: String): String = com.playtorrio.tv.ui.util.languageCodeToName(code)
+    }
+}

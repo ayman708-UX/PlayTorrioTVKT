@@ -1,0 +1,592 @@
+package com.playtorrio.tv.ui.components
+
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.playtorrio.tv.R
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.playtorrio.tv.domain.model.ContentType
+import com.playtorrio.tv.domain.model.CardDepthSurface
+import com.playtorrio.tv.domain.model.MetaPreview
+import com.playtorrio.tv.domain.model.PosterShape
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.request.crossfade
+import com.playtorrio.tv.ui.util.localizedGenreLabel
+import com.playtorrio.tv.ui.util.recompositionHighlighter
+import com.playtorrio.tv.domain.model.PLACEHOLDER_IMAGE_URL
+import com.playtorrio.tv.ui.util.rememberLongPressKeyTracker
+import kotlinx.coroutines.delay
+
+private const val BACKDROP_ASPECT_RATIO = 16f / 9f
+private const val TRAILER_PREVIEW_REQUEST_FOCUS_DEBOUNCE_MS = 140L
+private val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
+private val YEAR_RANGE_REGEX = Regex("""^((19|20)\d{2})\s*[-–]\s*((19|20)\d{2})?$""")
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun ContentCard(
+    item: MetaPreview,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
+    showLabels: Boolean = true,
+    showImdbRatings: Boolean = true,
+    placeholderShimmerOffsetState: State<Float>? = null,
+    focusedPosterBackdropExpandEnabled: Boolean = false,
+    focusedPosterBackdropExpandDelaySeconds: Int = 3,
+    focusedPosterBackdropTrailerEnabled: Boolean = false,
+    focusedPosterBackdropTrailerMuted: Boolean = true,
+    trailerPreviewUrl: String? = null,
+    trailerPreviewAudioUrl: String? = null,
+    onRequestTrailerPreview: (MetaPreview) -> Unit = {},
+    isWatched: Boolean = false,
+    onFocus: (MetaPreview) -> Unit = {},
+    onBackdropExpandedChanged: ((Boolean) -> Unit)? = null,
+    expandedDownFocusRequester: FocusRequester? = null,
+    expandedUpFocusRequester: FocusRequester? = null,
+    onLongPress: (() -> Unit)? = null,
+    onClick: () -> Unit = {}
+) {
+    val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
+    val cardDepthStyle = LocalCardDepthStyle.current
+    val baseCardWidth = when (item.posterShape) {
+        PosterShape.POSTER -> posterCardStyle.width
+        PosterShape.LANDSCAPE -> 260.dp
+        PosterShape.SQUARE -> 170.dp
+    }
+    val baseCardHeight = when (item.posterShape) {
+        PosterShape.POSTER -> posterCardStyle.height
+        PosterShape.LANDSCAPE -> 148.dp
+        PosterShape.SQUARE -> 170.dp
+    }
+    val expandedCardWidth = baseCardHeight * BACKDROP_ASPECT_RATIO
+
+    var isFocused by remember { mutableStateOf(false) }
+    var longPressTriggered by remember { mutableStateOf(false) }
+    val longPressKeyTracker = rememberLongPressKeyTracker()
+    var interactionNonce by remember { mutableIntStateOf(0) }
+    var isBackdropExpanded by remember { mutableStateOf(false) }
+    var trailerFirstFrameRendered by remember(trailerPreviewUrl) { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(isBackdropExpanded) {
+        onBackdropExpandedChanged?.invoke(isBackdropExpanded)
+    }
+    // The card always tracks live focus so the title marquee can scroll while the card is focused,
+    // even when the backdrop-expand / trailer features (which otherwise drive isFocused) are off.
+    val needsFocusState = true
+    val lastFocusedRef = remember { booleanArrayOf(false) }
+
+    val isPlaceholderItem = item.poster == PLACEHOLDER_IMAGE_URL
+
+    if (focusedPosterBackdropExpandEnabled && !isPlaceholderItem) {
+        LaunchedEffect(
+            focusedPosterBackdropExpandDelaySeconds,
+            isFocused,
+            interactionNonce,
+            item.id
+        ) {
+            if (!isFocused) {
+                isBackdropExpanded = false
+                return@LaunchedEffect
+            }
+
+            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0)
+
+            isBackdropExpanded = false
+            // Minimum debounce so rapid D-pad scrolling doesn't expand every card.
+            val backdropDelayMs = if (delaySeconds == 0) 370L else delaySeconds * 1000L
+            delay(backdropDelayMs)
+            if (isFocused && focusedPosterBackdropExpandEnabled &&
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            ) {
+                isBackdropExpanded = true
+            }
+        }
+    }
+
+    if (focusedPosterBackdropTrailerEnabled) {
+        // Trailer extraction is triggered by ModernHomeContent/ClassicHomeContent
+        // based on actual user focus, not by individual cards becoming visible.
+        // ContentCard only observes trailerPreviewUrl to start playback.
+    }
+
+    // Only pay the animation cost on the card that is actually focused/expanding.
+    // Unfocused cards snap directly to baseCardWidth — no animation state overhead.
+    val animatedCardWidth = when {
+        !focusedPosterBackdropExpandEnabled -> baseCardWidth
+        !isFocused && !isBackdropExpanded -> baseCardWidth
+        else -> {
+            val targetCardWidth = if (isBackdropExpanded) expandedCardWidth else baseCardWidth
+            val width by animateDpAsState(targetValue = targetCardWidth, label = "contentCardWidth")
+            width
+        }
+    }
+    val metaTokensContext = LocalContext.current
+    val metaTokens = if (isBackdropExpanded) {
+        remember(metaTokensContext, item.type, item.rawType, item.genres, item.releaseInfo, item.imdbRating, item.seasonCount, showImdbRatings) {
+            buildList {
+                add(
+                    item.apiType
+                        .replaceFirstChar { ch -> ch.uppercase() }
+                )
+                item.genres.firstOrNull()?.let { add(localizedGenreLabel(metaTokensContext, it)) }
+                if ((item.type == ContentType.SERIES || item.apiType.equals("series", ignoreCase = true)) &&
+                    item.seasonCount != null
+                ) {
+                    add("${item.seasonCount} ${if (item.seasonCount == 1) "season" else "seasons"}")
+                }
+                item.releaseInfo
+                    ?.let { info ->
+                        val trimmed = info.trim()
+                        val rangeMatch = YEAR_RANGE_REGEX.find(trimmed)
+                        if (rangeMatch != null) {
+                            val startYear = rangeMatch.groupValues[1]
+                            val endYear = rangeMatch.groupValues[3]
+                            if (endYear.isNotBlank()) "$startYear–$endYear" else startYear
+                        } else {
+                            YEAR_REGEX.find(trimmed)?.value
+                        }
+                    }
+                    ?.let { add(it) }
+                item.imdbRating
+                    ?.takeIf { showImdbRatings }
+                    ?.let { add(String.format(java.util.Locale.US, "%.1f", it)) }
+            }
+        }
+    } else {
+        emptyList()
+    }
+
+    Column(
+        modifier = modifier
+            .width(animatedCardWidth)
+            .recompositionHighlighter()
+    ) {
+        val context = LocalContext.current
+        val density = LocalDensity.current
+        // Keep decode size stable during width animation to avoid recreating requests/painters every frame.
+        val maxRequestCardWidth = if (focusedPosterBackdropExpandEnabled) {
+            maxOf(baseCardWidth, expandedCardWidth)
+        } else {
+            baseCardWidth
+        }
+        val requestWidthPx = remember(maxRequestCardWidth, density) {
+            with(density) { maxRequestCardWidth.roundToPx() }.coerceAtLeast(1)
+        }
+        val requestHeightPx = remember(baseCardHeight, density) {
+            with(density) { baseCardHeight.roundToPx() }.coerceAtLeast(1)
+        }
+
+        val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
+            item.backdropUrl ?: item.poster
+        } else {
+            item.poster
+        }
+        val revalidationKey = com.playtorrio.tv.core.image.rememberImageRevalidationKey(imageUrl)
+        val imageModel = remember(imageUrl, requestWidthPx, requestHeightPx, revalidationKey) {
+            val builder = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .crossfade(true)
+                .memoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}_v$revalidationKey")
+                .size(width = requestWidthPx, height = requestHeightPx)
+            if (revalidationKey > 0) {
+                builder.placeholderMemoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}_v${revalidationKey - 1}")
+            }
+            builder.build()
+        }
+        val logoRequestHeightPx = remember(density) {
+            with(density) { PlayTorrioTheme.spacing.xxxl.roundToPx() }
+        }
+        val logoModel = remember(item.logo, requestWidthPx, logoRequestHeightPx) {
+            item.logo?.let { logoUrl ->
+                ImageRequest.Builder(context)
+                    .data(logoUrl)
+                    .crossfade(false)
+                    .memoryCacheKey("${logoUrl}_${requestWidthPx}x${logoRequestHeightPx}")
+                    .size(width = requestWidthPx, height = logoRequestHeightPx)
+                    .build()
+            }
+        }
+        var logoLoadFailed by remember(item.logo) { mutableStateOf(false) }
+        val showExpandedLogo = !item.logo.isNullOrBlank() && !logoLoadFailed
+
+        val bgCardColor = PlayTorrioTheme.colors.BackgroundCard
+        val backgroundPainter = remember(bgCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(bgCardColor) }
+
+        Card(
+            onClick = {
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                } else {
+                    onClick()
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { state ->
+                    val focusedNow = state.isFocused
+                    if (needsFocusState) {
+                        if (focusedNow != isFocused) {
+                            isFocused = focusedNow
+                            if (focusedNow) {
+                                interactionNonce++
+                                onFocus(item)
+                            } else {
+                                isBackdropExpanded = false
+                            }
+                        }
+                    } else {
+                        if (focusedNow != lastFocusedRef[0]) {
+                            lastFocusedRef[0] = focusedNow
+                            if (focusedNow) onFocus(item)
+                        }
+                    }
+                }
+                .onPreviewKeyEvent { keyEvent ->
+                    val native = keyEvent.nativeKeyEvent
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                        if (focusedPosterBackdropExpandEnabled && isFocused && shouldResetBackdropTimer(native)) {
+                            interactionNonce++
+                        }
+                        if (onLongPress != null) {
+                            if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                                longPressTriggered = true
+                                onLongPress()
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                    }
+                    if (onLongPress != null &&
+                        longPressKeyTracker.handle(native, ::isSelectKey) {
+                            longPressTriggered = true
+                            onLongPress()
+                        }
+                    ) {
+                        if (native.action == AndroidKeyEvent.ACTION_UP) {
+                            longPressTriggered = false
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                    if (native.action == AndroidKeyEvent.ACTION_UP &&
+                        longPressTriggered &&
+                        (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU)
+                    ) {
+                        longPressTriggered = false
+                        return@onPreviewKeyEvent true
+                    }
+                    false
+                }
+                .then(
+                    if (isBackdropExpanded && (expandedDownFocusRequester != null || expandedUpFocusRequester != null)) {
+                        Modifier.focusProperties {
+                            if (expandedDownFocusRequester != null) down = expandedDownFocusRequester
+                            if (expandedUpFocusRequester != null) up = expandedUpFocusRequester
+                        }
+                    } else Modifier
+                )
+                .then(
+                    if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
+                ),
+            shape = CardDefaults.shape(shape = cardShape),
+            colors = CardDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = PlayTorrioTheme.focusRing.border(posterCardStyle.focusedBorderWidth),
+                    shape = cardShape
+                )
+            ),
+            scale = CardDefaults.scale(focusedScale = posterCardStyle.focusedScale)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(baseCardHeight)
+                    .clip(cardShape)
+                    .playtorrioCardDepth(
+                        shape = cardShape,
+                        surface = CardDepthSurface.POSTERS,
+                        style = cardDepthStyle
+                    )
+            ) {
+                val isPlaceholderItem = imageUrl == PLACEHOLDER_IMAGE_URL
+                if (isPlaceholderItem) {
+                    val effectivePlaceholderShimmerOffsetState =
+                        placeholderShimmerOffsetState ?: rememberPlaceholderShimmerOffsetState(
+                            label = "classicPlaceholderShimmer"
+                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .placeholderCardShimmer(
+                                shimmerOffsetState = effectivePlaceholderShimmerOffsetState,
+                                backgroundColor = PlayTorrioTheme.colors.BackgroundCard
+                            )
+                    )
+                } else if (!imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        placeholder = backgroundPainter,
+                        error = backgroundPainter,
+                        fallback = backgroundPainter,
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    MonochromePosterPlaceholder()
+                }
+
+                val shouldPlayTrailerPreview = isBackdropExpanded &&
+                    focusedPosterBackdropTrailerEnabled &&
+                    isFocused &&
+                    trailerPreviewUrl != null
+
+                if (focusedPosterBackdropTrailerEnabled) {
+                    LaunchedEffect(shouldPlayTrailerPreview) {
+                        if (!shouldPlayTrailerPreview) {
+                            trailerFirstFrameRendered = false
+                        }
+                    }
+                }
+
+                // Only allocate animation state when trailer is actually playing.
+                val trailerCoverAlpha = if (shouldPlayTrailerPreview) {
+                    val alpha by animateFloatAsState(
+                        targetValue = if (!trailerFirstFrameRendered) 1f else 0f,
+                        animationSpec = tween(durationMillis = 250),
+                        label = "trailerCoverAlpha"
+                    )
+                    alpha
+                } else {
+                    0f
+                }
+
+                if (shouldPlayTrailerPreview) {
+                    // Black plate under FIT-mode video so non-16:9 trailers letterbox
+                    // to black instead of revealing the expanded backdrop (#2852).
+                    // The backdrop cover above still hides load-in; it fades out after
+                    // the first frame, leaving black + trailer only.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    )
+                    TrailerPlayer(
+                        trailerUrl = trailerPreviewUrl,
+                        trailerAudioUrl = trailerPreviewAudioUrl,
+                        isPlaying = true,
+                        onEnded = {
+                            trailerFirstFrameRendered = false
+                            isBackdropExpanded = false
+                        },
+                        onFirstFrameRendered = {
+                            trailerFirstFrameRendered = true
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        muted = focusedPosterBackdropTrailerMuted
+                    )
+                }
+
+                if (shouldPlayTrailerPreview && !imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = trailerCoverAlpha },
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                if (isBackdropExpanded) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(96.dp)
+                            .drawWithCache {
+                                val gradient = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.76f)
+                                    ),
+                                    startY = 0f,
+                                    endY = size.height
+                                )
+                                onDrawBehind { drawRect(gradient) }
+                            }
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = PlayTorrioTheme.spacing.md, end = PlayTorrioTheme.spacing.md, bottom = PlayTorrioTheme.spacing.md)
+                            .fillMaxWidth(0.75f)
+                    ) {
+                        if (showExpandedLogo) {
+                            AsyncImage(
+                                model = logoModel,
+                                contentDescription = item.name,
+                                onError = { logoLoadFailed = true },
+                                modifier = Modifier
+                                    .height(PlayTorrioTheme.spacing.xxxl)
+                                    .fillMaxWidth(),
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart
+                            )
+                        } else {
+                            FocusMarqueeText(
+                                text = item.name,
+                                focused = isFocused,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                            )
+                        }
+                    }
+                }
+
+                if (isWatched) {
+                    WatchedMarker(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = PlayTorrioTheme.spacing.sm, top = PlayTorrioTheme.spacing.sm)
+                            .zIndex(2f)
+                    )
+                }
+            }
+        }
+
+        // When backdrop expand is enabled, both the labels state and the
+        // expanded state share a single Column with a fixed minimum height
+        // so the row never shifts vertically during the expand transition.
+        if (showLabels) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = PlayTorrioTheme.spacing.sm)
+            ) {
+                if (isBackdropExpanded) {
+                    if (metaTokens.isNotEmpty()) {
+                        Text(
+                            text = metaTokens.joinToString("  •  "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PlayTorrioTheme.extendedColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    item.description?.takeIf { it.isNotBlank() }?.let { description ->
+                        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+                        Text(
+                            text = description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PlayTorrioTheme.colors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    FocusMarqueeText(
+                        text = item.name,
+                        focused = isFocused,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                    )
+                    item.releaseInfo?.let { info ->
+                        FocusMarqueeText(
+                            text = info,
+                            focused = isFocused,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PlayTorrioTheme.extendedColors.textSecondary,
+                        )
+                    }
+                    if (focusedPosterBackdropExpandEnabled) {
+                        Spacer(modifier = Modifier.height(15.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Keys that should collapse an expanded poster so navigation can re-arm expand.
+ *
+ * Select keys (Center / Enter) are intentionally excluded: holding them opens the
+ * action menu. Resetting the expand timer on those keys collapsed and re-expanded
+ * the card while the menu was opening (#2574).
+ */
+private fun shouldResetBackdropTimer(nativeEvent: AndroidKeyEvent): Boolean {
+    val key = nativeEvent.keyCode
+    return when (key) {
+        AndroidKeyEvent.KEYCODE_DPAD_UP,
+        AndroidKeyEvent.KEYCODE_DPAD_DOWN,
+        AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+        AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+        AndroidKeyEvent.KEYCODE_BACK -> true
+        else -> false
+    }
+}
+
+private fun isSelectKey(keyCode: Int): Boolean {
+    return keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+}

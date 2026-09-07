@@ -1,0 +1,1203 @@
+package com.playtorrio.tv.ui.screens.detail
+
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.playtorrio.tv.core.util.parseEpisodeReleaseLocalDate
+import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
+import coil3.imageLoader
+import coil3.memory.MemoryCache
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.transformations
+import com.playtorrio.tv.R
+import com.playtorrio.tv.domain.model.Video
+import com.playtorrio.tv.domain.model.EpisodeOptionsOverlayStyle
+import com.playtorrio.tv.ui.components.FocusMarqueeText
+import com.playtorrio.tv.ui.components.ImdbRatingSourceLabel
+import com.playtorrio.tv.ui.components.PlayTorrioDialog
+import com.playtorrio.tv.ui.components.WatchedMarker
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+import com.playtorrio.tv.domain.model.CardDepthSurface
+import com.playtorrio.tv.ui.components.LocalCardDepthStyle
+import com.playtorrio.tv.ui.components.playtorrioCardDepth
+import android.text.format.DateFormat
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+import com.playtorrio.tv.ui.util.localizeEpisodeTitle
+import com.playtorrio.tv.ui.util.rememberLongPressKeyTracker
+
+private const val EPISODE_CARD_CONTENT_TYPE = "episode_card"
+private const val EPISODE_SCROLL_REPEAT_THROTTLE_MS = 80L
+private const val EPISODE_RESTORE_FALLBACK_MS = 250L
+private const val EPISODE_OVERLAY_PREFETCH_DELAY_MS = 120L
+
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun SeasonTabs(
+    seasons: List<Int>,
+    selectedSeason: Int,
+    onSeasonSelected: (Int) -> Unit,
+    onSeasonLongPress: (Int) -> Unit = {},
+    selectedTabFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
+    isFocusEnabled: Boolean = true
+) {
+    // Move season 0 (specials) to the end
+    val sortedSeasons = remember(seasons) {
+        val regularSeasons = seasons.filter { it > 0 }.sorted()
+        val specials = seasons.filter { it == 0 }
+        regularSeasons + specials
+    }
+
+    val tabShape = remember { RoundedCornerShape(20.dp) }
+    val tabBorder = CardDefaults.border(
+        focusedBorder = Border(
+            border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+            shape = RoundedCornerShape(20.dp)
+        )
+    )
+    val tabScale = CardDefaults.scale(focusedScale = 1.0f)
+    val typography = MaterialTheme.typography
+    val tabTextStyle = remember(typography) { typography.titleMedium }
+    val textSecondary = PlayTorrioTheme.extendedColors.textSecondary
+    val initialSeasonIndex = remember(sortedSeasons, selectedSeason) {
+        sortedSeasons.indexOf(selectedSeason).coerceAtLeast(0)
+    }
+    val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialSeasonIndex)
+
+    var suppressFocusSwitch by remember { mutableStateOf(false) }
+    var lastAppliedSeason by remember { mutableStateOf(selectedSeason) }
+    // Clear suppress whenever selectedSeason actually settles (composition runs
+    // with the new value). This guarantees reset even if the scroll coroutine is cancelled.
+    if (lastAppliedSeason != selectedSeason) {
+        lastAppliedSeason = selectedSeason
+        suppressFocusSwitch = false
+    }
+
+    var pendingSeason by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pendingSeason) {
+        val target = pendingSeason ?: return@LaunchedEffect
+        delay(150)
+        onSeasonSelected(target)
+        pendingSeason = null
+    }
+
+    LaunchedEffect(sortedSeasons, selectedSeason) {
+        val selectedIndex = sortedSeasons.indexOf(selectedSeason)
+        if (selectedIndex < 0) return@LaunchedEffect
+
+        val visibleIndices = lazyListState.layoutInfo.visibleItemsInfo.map { it.index }
+        if (selectedIndex in visibleIndices) return@LaunchedEffect
+
+        suppressFocusSwitch = true
+        lazyListState.scrollToItem(selectedIndex)
+        suppressFocusSwitch = false
+    }
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRestorer(selectedTabFocusRequester)
+            .focusGroup(),
+        state = lazyListState,
+        contentPadding = PaddingValues(horizontal = PlayTorrioTheme.spacing.xxxl, vertical = PlayTorrioTheme.spacing.xl),
+        horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+    ) {
+        items(sortedSeasons, key = { it }) { season ->
+            val isSelected = season == selectedSeason
+            var isFocused by remember { mutableStateOf(false) }
+            var longPressTriggered by remember { mutableStateOf(false) }
+            val longPressKeyTracker = rememberLongPressKeyTracker()
+
+            Card(
+                onClick = {
+                    if (longPressTriggered) {
+                        longPressTriggered = false
+                    } else {
+                        onSeasonSelected(season)
+                    }
+                },
+                modifier = Modifier
+                    .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
+                    .focusProperties {
+                        canFocus = isFocusEnabled
+                        if (isSelected && downFocusRequester != null) {
+                            down = downFocusRequester
+                        }
+                        if (upFocusRequester != null) {
+                            up = upFocusRequester
+                        }
+                    }
+                    .onFocusChanged {
+                    val nowFocused = it.isFocused
+                    isFocused = nowFocused
+                    if (nowFocused && !isSelected && !suppressFocusSwitch) {
+                        pendingSeason = season
+                    }
+                }
+                    .onPreviewKeyEvent { event ->
+                        val native = event.nativeKeyEvent
+                        if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                            if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                                longPressTriggered = true
+                                onSeasonLongPress(season)
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                        if (longPressKeyTracker.handle(native, ::isSelectKey) {
+                                longPressTriggered = true
+                                onSeasonLongPress(season)
+                            }
+                        ) {
+                            if (native.action == AndroidKeyEvent.ACTION_UP) {
+                                longPressTriggered = false
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        if (native.action == AndroidKeyEvent.ACTION_UP &&
+                            longPressTriggered &&
+                            (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU)
+                        ) {
+                            longPressTriggered = false
+                            return@onPreviewKeyEvent true
+                        }
+                        false
+                    },
+                shape = CardDefaults.shape(shape = tabShape),
+                colors = CardDefaults.colors(
+                    containerColor = if (isSelected) PlayTorrioTheme.colors.SurfaceVariant else PlayTorrioTheme.colors.BackgroundCard,
+                    focusedContainerColor = PlayTorrioTheme.colors.Secondary
+                ),
+                border = tabBorder,
+                scale = tabScale
+            ) {
+                Text(
+                    text = if (season == 0) stringResource(R.string.episodes_specials) else stringResource(R.string.episodes_season, season),
+                    style = tabTextStyle,
+                    color = when {
+                        isFocused -> PlayTorrioTheme.colors.OnSecondary
+                        isSelected -> PlayTorrioTheme.colors.TextPrimary
+                        else -> textSecondary
+                    },
+                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 20.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun EpisodesRow(
+    episodes: List<Video>,
+    episodeProgressMap: Map<Pair<Int, Int>, com.playtorrio.tv.domain.model.WatchProgress> = emptyMap(),
+    episodeRatings: Map<Pair<Int, Int>, Double> = emptyMap(),
+    watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
+    episodeWatchedPendingKeys: Set<String> = emptySet(),
+    blurUnwatchedEpisodes: Boolean = false,
+    episodeOptionsOverlayStyle: EpisodeOptionsOverlayStyle = EpisodeOptionsOverlayStyle.ARTWORK,
+    posterCardCornerRadiusDp: Int = 12,
+    onEpisodeClick: (Video) -> Unit,
+    onEpisodeManualPlayClick: (Video) -> Unit = onEpisodeClick,
+    onEpisodeStartFromBeginningClick: (Video) -> Unit = onEpisodeClick,
+    onToggleEpisodeWatched: (Video) -> Unit,
+    showManualPlayOption: Boolean = false,
+    onMarkSeasonWatched: (Int) -> Unit = {},
+    onMarkSeasonUnwatched: (Int) -> Unit = {},
+    isSeasonFullyWatched: Boolean = false,
+    selectedSeason: Int = 1,
+    onOpenEpisodeComments: (Video) -> Unit = {},
+    showOpenEpisodeComments: Boolean = false,
+    onMarkPreviousEpisodesWatched: (Video) -> Unit = {},
+    upFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester? = null,
+    episodeFocusRequesters: MutableMap<String, FocusRequester> = mutableMapOf(),
+    restoreEpisodeId: String? = null,
+    restoreFocusToken: Int = 0,
+    onRestoreFocusHandled: () -> Unit = {},
+    onEpisodeFocused: (episodeId: String) -> Unit = {},
+    scrollToEpisodeId: String? = null,
+    onScrollToEpisodeHandled: () -> Unit = {}
+) {
+    val dedupedEpisodes = remember(episodes) { episodes.distinctBy { it.id } }
+    val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
+    var optionsEpisode by remember { mutableStateOf<Video?>(null) }
+    val isOverlayOpen = optionsEpisode != null
+    val cardMetrics = rememberEpisodeCardMetrics(posterCardCornerRadiusDp)
+    val density = LocalDensity.current
+    val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+    val initialEpisodeIndex = remember(dedupedEpisodes, restoreEpisodeId, scrollToEpisodeId) {
+        val initialEpisodeId = restoreEpisodeId ?: scrollToEpisodeId
+        val targetIndex = dedupedEpisodes.indexOfFirst { it.id == initialEpisodeId }
+        if (restoreEpisodeId != null) {
+            (targetIndex - 1).coerceAtLeast(0)
+        } else {
+            targetIndex.coerceAtLeast(0)
+        }
+    }
+    val lazyListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialEpisodeIndex,
+        prefetchStrategy = rowPrefetchStrategy
+    )
+    var lastHorizontalKeyRepeatTime by remember { mutableStateOf(0L) }
+    val episodeIds = remember(dedupedEpisodes) { dedupedEpisodes.mapTo(mutableSetOf()) { it.id } }
+    LaunchedEffect(episodeIds, episodeFocusRequesters) {
+        episodeFocusRequesters.keys.retainAll(episodeIds)
+    }
+
+    LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, dedupedEpisodes) {
+        if (restoreFocusToken <= 0 || restoreEpisodeId.isNullOrBlank()) return@LaunchedEffect
+        if (dedupedEpisodes.none { it.id == restoreEpisodeId }) {
+            delay(EPISODE_RESTORE_FALLBACK_MS)
+            onRestoreFocusHandled()
+            return@LaunchedEffect
+        }
+        val index = dedupedEpisodes.indexOfFirst { it.id == restoreEpisodeId }
+        if (index >= 0) {
+            val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
+            lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+        }
+        val focusRequested = restoreTargetRequester?.requestFocusAfterFrames(frames = 1) == true
+        if (!focusRequested) {
+            onRestoreFocusHandled()
+            return@LaunchedEffect
+        }
+        delay(EPISODE_RESTORE_FALLBACK_MS)
+        onRestoreFocusHandled()
+    }
+
+    LaunchedEffect(scrollToEpisodeId, dedupedEpisodes) {
+        if (scrollToEpisodeId.isNullOrBlank()) return@LaunchedEffect
+        val index = dedupedEpisodes.indexOfFirst { it.id == scrollToEpisodeId }
+        if (index < 0) return@LaunchedEffect
+        val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
+        lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+        onScrollToEpisodeHandled()
+    }
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                val isHorizontalKey = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
+                    native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                if (
+                    isHorizontalKey &&
+                    native.action == AndroidKeyEvent.ACTION_DOWN &&
+                    native.repeatCount > 0
+                ) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastHorizontalKeyRepeatTime < EPISODE_SCROLL_REPEAT_THROTTLE_MS) {
+                        return@onPreviewKeyEvent true
+                    }
+                    lastHorizontalKeyRepeatTime = now
+                }
+                false
+            },
+        state = lazyListState,
+        contentPadding = PaddingValues(
+            horizontal = cardMetrics.rowHorizontalPadding,
+            vertical = cardMetrics.rowVerticalPadding
+        ),
+        horizontalArrangement = Arrangement.spacedBy(cardMetrics.itemSpacing)
+    ) {
+        items(
+            items = dedupedEpisodes,
+            key = { it.id },
+            contentType = { EPISODE_CARD_CONTENT_TYPE }
+        ) { episode ->
+            val seasonEp = remember(episode.season, episode.episode) { episode.season?.let { s -> episode.episode?.let { e -> s to e } } }
+            val progress = remember(seasonEp, episodeProgressMap) { seasonEp?.let { episodeProgressMap[it] } }
+            val imdbRating = remember(seasonEp, episodeRatings) { seasonEp?.let { episodeRatings[it] } }
+            val isMarkedWatched = remember(seasonEp, watchedEpisodes) { seasonEp?.let { watchedEpisodes.contains(it) } ?: false }
+            val episodeFocusRequester = remember(episode.id) { episodeFocusRequesters.getOrPut(episode.id) { FocusRequester() } }
+            val episodeOnClick = remember(episode.id) { { onEpisodeClick(episode) } }
+            val episodeOnLongPress = remember(episode.id) { { optionsEpisode = episode } }
+            val episodeOnFocused = remember(episode.id) { { onEpisodeFocused(episode.id) } }
+            val isRestoreTarget = episode.id == restoreEpisodeId
+            val episodeOnFocusRestored = remember(isRestoreTarget, onRestoreFocusHandled) {
+                if (isRestoreTarget) onRestoreFocusHandled else null
+            }
+            EpisodeCard(
+                episode = episode,
+                watchProgress = progress,
+                imdbRating = imdbRating,
+                isMarkedWatched = isMarkedWatched,
+                blurUnwatched = blurUnwatchedEpisodes,
+                suppressMarquee = isOverlayOpen,
+                cardMetrics = cardMetrics,
+                onClick = episodeOnClick,
+                onLongPress = episodeOnLongPress,
+                upFocusRequester = upFocusRequester,
+                downFocusRequester = downFocusRequester,
+                focusRequester = episodeFocusRequester,
+                isFocusEnabled = restoreEpisodeId.isNullOrBlank() || isRestoreTarget,
+                onFocused = episodeOnFocused,
+                onFocusRestored = episodeOnFocusRestored
+            )
+        }
+    }
+
+    optionsEpisode?.let { selectedEpisode ->
+        val selectedWatched = selectedEpisode.season?.let { season ->
+            selectedEpisode.episode?.let { episode ->
+                episodeProgressMap[season to episode]?.isCompleted() == true
+                    || watchedEpisodes.contains(season to episode)
+            }
+        } ?: false
+        val isPending = episodeWatchedPendingKeys.contains(episodePendingKey(selectedEpisode))
+        val firstEpisodeInSeason = dedupedEpisodes.minByOrNull { it.episode ?: Int.MAX_VALUE }
+        val hasPreviousEpisodes = selectedEpisode.episode != null &&
+            firstEpisodeInSeason?.episode != null &&
+            selectedEpisode.episode > firstEpisodeInSeason.episode
+
+        EpisodeOptionsOverlay(
+            episode = selectedEpisode,
+            imdbRating = selectedEpisode.season?.let { season ->
+                selectedEpisode.episode?.let { episode -> episodeRatings[season to episode] }
+            },
+            isWatched = selectedWatched,
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            style = episodeOptionsOverlayStyle,
+            isPending = isPending,
+            isSeasonFullyWatched = isSeasonFullyWatched,
+            hasPreviousEpisodes = hasPreviousEpisodes,
+            hasProgress = selectedEpisode.season?.let { season ->
+                selectedEpisode.episode?.let { episode ->
+                    episodeProgressMap[season to episode]?.let { progress ->
+                        !progress.isCompleted() && progress.position > 0
+                    }
+                }
+            } ?: false,
+            onDismiss = { optionsEpisode = null },
+            onPlay = {
+                onEpisodeClick(selectedEpisode)
+                optionsEpisode = null
+            },
+            onStartFromBeginning = {
+                onEpisodeStartFromBeginningClick(selectedEpisode)
+                optionsEpisode = null
+            },
+            onOpenEpisodeComments = {
+                onOpenEpisodeComments(selectedEpisode)
+                optionsEpisode = null
+            },
+            showOpenEpisodeComments = showOpenEpisodeComments,
+            onPlayManually = {
+                onEpisodeManualPlayClick(selectedEpisode)
+                optionsEpisode = null
+            },
+            showPlayManually = showManualPlayOption,
+            onToggleWatched = {
+                onToggleEpisodeWatched(selectedEpisode)
+                optionsEpisode = null
+            },
+            onMarkSeasonWatched = {
+                onMarkSeasonWatched(selectedSeason)
+                optionsEpisode = null
+            },
+            onMarkSeasonUnwatched = {
+                onMarkSeasonUnwatched(selectedSeason)
+                optionsEpisode = null
+            },
+            onMarkPreviousEpisodesWatched = {
+                onMarkPreviousEpisodesWatched(selectedEpisode)
+                optionsEpisode = null
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun EpisodeCard(
+    episode: Video,
+    watchProgress: com.playtorrio.tv.domain.model.WatchProgress? = null,
+    imdbRating: Double? = null,
+    isMarkedWatched: Boolean = false,
+    blurUnwatched: Boolean = false,
+    suppressMarquee: Boolean = false,
+    cardMetrics: EpisodeCardMetrics,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    upFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester? = null,
+    focusRequester: FocusRequester,
+    isFocusEnabled: Boolean = true,
+    onFocused: (() -> Unit)? = null,
+    onFocusRestored: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val formattedDate = remember(episode.released) {
+        episode.released?.let(::formatEpisodeCardDate).orEmpty()
+    }
+    val runtimeLabel = remember(episode.runtime) {
+        episode.runtime?.takeIf { it > 0 }?.let(::formatEpisodeRuntime)
+    }
+    val ratingLabel = remember(imdbRating) {
+        imdbRating?.takeIf { it > 0.0 }?.let { String.format(Locale.US, "%.1f", it) }
+    }
+    val description = remember(episode.overview) { episode.overview?.trim().orEmpty() }
+    val isWatched = remember(watchProgress, isMarkedWatched) { watchProgress?.isCompleted() == true || isMarkedWatched }
+    val shouldBlur = remember(blurUnwatched, isWatched) { blurUnwatched && !isWatched }
+    val progressPercent = remember(watchProgress) { watchProgress?.progressPercentage ?: 0f }
+    val showProgress = remember(watchProgress) { watchProgress?.isInProgress() == true }
+    val showCompletedBadge = isWatched
+    val showNotStartedBadge = remember(showCompletedBadge, progressPercent) { !showCompletedBadge && progressPercent < 0.02f }
+    val isUnavailable = remember(episode.available) { episode.available == false }
+    val cardBgColor = PlayTorrioTheme.colors.BackgroundCard
+    val isFocusedState = remember { mutableStateOf(false) }
+    val cardCornerRadius = remember(cardMetrics.cornerRadius, density) {
+        with(density) { cardMetrics.cornerRadius.toPx() }
+    }
+    var isFocused by isFocusedState
+    var longPressTriggered by remember { mutableStateOf(false) }
+    val longPressKeyTracker = rememberLongPressKeyTracker()
+    val shape = remember(cardMetrics.cornerRadius) { RoundedCornerShape(cardMetrics.cornerRadius) }
+    val cardDepthStyle = LocalCardDepthStyle.current
+    val thumbnailWidthPx = remember(cardMetrics.cardWidth, density) {
+        with(density) { cardMetrics.cardWidth.roundToPx() }
+    }
+    val thumbnailHeightPx = remember(cardMetrics.cardHeight, density) {
+        with(density) { cardMetrics.cardHeight.roundToPx() }
+    }
+    val overlayBrush = remember {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.0f to Color.Transparent,
+                0.15f to Color.Black.copy(alpha = 0.08f),
+                0.35f to Color.Black.copy(alpha = 0.28f),
+                0.60f to Color.Black.copy(alpha = 0.72f),
+                0.85f to Color.Black.copy(alpha = 0.90f),
+                1.0f to Color.Black.copy(alpha = 0.96f)
+            )
+        )
+    }
+    val typography = MaterialTheme.typography
+    val episodeBadgeStyle = remember(typography, cardMetrics) {
+        typography.labelSmall.copy(
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = cardMetrics.episodeBadgeLetterSpacing,
+            color = Color.White.copy(alpha = 0.9f)
+        )
+    }
+    val titleStyle = remember(typography, cardMetrics) {
+        typography.titleMedium.copy(
+            fontWeight = FontWeight.ExtraBold,
+            lineHeight = cardMetrics.titleLineHeight,
+            shadow = Shadow(
+                color = Color.Black,
+                offset = Offset(0f, 1f),
+                blurRadius = 1f
+            )
+        )
+    }
+    val descriptionStyle = remember(typography, cardMetrics) {
+        typography.bodySmall.copy(
+            color = Color.White.copy(alpha = 0.9f),
+            lineHeight = cardMetrics.descriptionLineHeight,
+            shadow = Shadow(
+                color = Color.Black,
+                offset = Offset(0f, 1f),
+                blurRadius = 1f
+            )
+        )
+    }
+    val textSecondary = PlayTorrioTheme.colors.TextSecondary
+    val metaLabelStyle = remember(typography, textSecondary) {
+        typography.labelSmall.copy(color = textSecondary)
+    }
+    val ratingStyle = remember(typography) {
+        typography.labelSmall.copy(
+            color = Color(0xFFF5C518),
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+    val badgeBgColor = remember { Color.Black.copy(alpha = 0.42f) }
+    val badgeShape = remember(cardMetrics.episodeBadgeCornerRadius) { RoundedCornerShape(cardMetrics.episodeBadgeCornerRadius) }
+    val progressBgColor = remember { Color.Black.copy(alpha = 0.45f) }
+    val notStartedBadgeColor = remember(textSecondary) { textSecondary.copy(alpha = 0.9f) }
+    val thumbnailRequest = remember(context, episode.thumbnail, thumbnailWidthPx, thumbnailHeightPx, shouldBlur) {
+        ImageRequest.Builder(context)
+            .data(episode.thumbnail)
+            .crossfade(true)
+            .size(width = thumbnailWidthPx, height = thumbnailHeightPx)
+            .apply {
+                if (shouldBlur) {
+                    transformations(com.playtorrio.tv.ui.util.BlurTransformation())
+                }
+            }
+            .build()
+    }
+    val overlayBackdropUrl = remember(episode.thumbnail) {
+        episodeOverlayBackdropUrl(episode.thumbnail)
+    }
+    val overlayBackdropWidthPx = remember(configuration, density) {
+        with(density) { configuration.screenWidthDp.dp.roundToPx() }
+    }
+    val overlayBackdropHeightPx = remember(configuration, density) {
+        with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    }
+    val imageLoader = context.imageLoader
+    val overlayPrefetchUrl = remember(episode.thumbnail, shouldBlur) {
+        if (shouldBlur) {
+            episode.thumbnail?.takeIf { it.isNotBlank() }
+        } else {
+            overlayBackdropUrl
+        }
+    }
+    LaunchedEffect(
+        isFocused,
+        overlayPrefetchUrl,
+        overlayBackdropWidthPx,
+        overlayBackdropHeightPx,
+        shouldBlur
+    ) {
+        if (!isFocused) return@LaunchedEffect
+        val url = overlayPrefetchUrl ?: return@LaunchedEffect
+        if (overlayBackdropWidthPx <= 0 || overlayBackdropHeightPx <= 0) return@LaunchedEffect
+        delay(EPISODE_OVERLAY_PREFETCH_DELAY_MS)
+        val (decodeWidthPx, decodeHeightPx) = episodeOverlayBackdropDecodeSize(
+            overlayBackdropWidthPx,
+            overlayBackdropHeightPx,
+            shouldBlur
+        )
+        val cacheKey = episodeOverlayBackdropMemoryCacheKey(
+            url,
+            decodeWidthPx,
+            decodeHeightPx,
+            shouldBlur
+        )
+        if (imageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) return@LaunchedEffect
+        imageLoader.enqueue(
+            episodeOverlayBackdropRequest(
+                context,
+                url,
+                overlayBackdropWidthPx,
+                overlayBackdropHeightPx,
+                blur = shouldBlur
+            )
+        )
+    }
+    val strEpisode = stringResource(R.string.episodes_episode)
+    val strUnavailable = stringResource(R.string.episodes_unavailable)
+    val episodeCode = remember(episode.episode, strEpisode) {
+        val prefix = strEpisode.uppercase(Locale.getDefault())
+        episode.episode?.let { number -> "$prefix $number" } ?: prefix
+    }
+
+    val primaryColor = PlayTorrioTheme.colors.Primary
+    val textPrimary = PlayTorrioTheme.colors.TextPrimary
+    val focusRingBorder = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs)
+    val cardShape = CardDefaults.shape(shape = shape)
+    val cardColors = CardDefaults.colors(
+        containerColor = Color.Transparent,
+        focusedContainerColor = Color.Transparent
+    )
+    val cardBorder = CardDefaults.border(
+        focusedBorder = Border(
+            border = focusRingBorder,
+            shape = shape
+        )
+    )
+    val cardScale = CardDefaults.scale(focusedScale = 1.0f)
+    val cardGlow = CardDefaults.glow()
+
+    Card(
+        onClick = {
+            if (longPressTriggered) {
+                longPressTriggered = false
+            } else {
+                onClick()
+            }
+        },
+        modifier = Modifier
+            .width(cardMetrics.cardWidth)
+            .focusRequester(focusRequester)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) {
+                    onFocused?.invoke()
+                    onFocusRestored?.invoke()
+                }
+            }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                    if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                        longPressTriggered = true
+                        onLongPress()
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                if (longPressKeyTracker.handle(native, ::isSelectKey) {
+                        longPressTriggered = true
+                        onLongPress()
+                    }
+                ) {
+                    if (native.action == AndroidKeyEvent.ACTION_UP) {
+                        longPressTriggered = false
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                if (native.action == AndroidKeyEvent.ACTION_UP &&
+                    longPressTriggered &&
+                    (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU)
+                ) {
+                    longPressTriggered = false
+                    return@onPreviewKeyEvent true
+                }
+                false
+            }
+            .focusProperties {
+                canFocus = isFocusEnabled
+                up = upFocusRequester
+                if (downFocusRequester != null) {
+                    down = downFocusRequester
+                }
+            },
+        shape = cardShape,
+        colors = cardColors,
+        border = cardBorder,
+        scale = cardScale,
+        glow = cardGlow
+    ) {
+        Box(
+            modifier = Modifier
+                .width(cardMetrics.cardWidth)
+                .height(cardMetrics.cardHeight)
+                .clip(shape)
+                .playtorrioCardDepth(
+                    shape = shape,
+                    surface = CardDepthSurface.EPISODE_CARDS,
+                    style = cardDepthStyle,
+                    fallbackBorderAlpha = 0.12f
+                )
+        ) {
+            val bgPainter = remember(cardBgColor) { androidx.compose.ui.graphics.painter.ColorPainter(cardBgColor) }
+            AsyncImage(
+                model = thumbnailRequest,
+                contentDescription = episode.title.localizeEpisodeTitle(context),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy =
+                            CompositingStrategy.Offscreen
+                    }
+                    .clipToBounds()
+
+                    //Gradient for text legibility
+                    .drawWithContent {
+                        drawContent()
+
+                        // Floor-fade text-protection scrim across the whole card: fully transparent
+                        // over the artwork up top, easing in gradually (no abrupt onset, which banded
+                        // into a visible "line" over smooth/blurred thumbnails) and ramping to ~95%
+                        // black in the bottom strip where the text sits. The scrim — not the shadow —
+                        // carries legibility (WCAG 3:1 title / ~4.5:1 description).
+                        val localBrush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Transparent,
+                                0.20f to Color.Black.copy(alpha = 0.04f),
+                                0.38f to Color.Black.copy(alpha = 0.26f),
+                                0.54f to Color.Black.copy(alpha = 0.56f),
+                                0.70f to Color.Black.copy(alpha = 0.76f),
+                                0.86f to Color.Black.copy(alpha = 0.88f),
+                                1.0f to Color.Black.copy(alpha = 0.95f)
+                            ),
+                            startY = 0f,
+                            endY = size.height
+                        )
+                        drawRect(
+                            brush = localBrush,
+                            alpha = if (isFocusedState.value) 1f else 0.94f
+                        )
+                    },
+                contentScale = ContentScale.Crop,
+                placeholder = bgPainter,
+                error = bgPainter,
+                fallback = bgPainter
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(
+                        start = cardMetrics.contentPadding,
+                        end = cardMetrics.contentPadding,
+                        top = cardMetrics.contentPadding,
+                        bottom = cardMetrics.contentBottomPadding
+                    ),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = badgeBgColor,
+                            shape = badgeShape
+                        )
+                        .padding(
+                            horizontal = cardMetrics.episodeBadgeHorizontalPadding,
+                            vertical = cardMetrics.episodeBadgeVerticalPadding
+                        )
+                ) {
+                    Text(
+                        text = episodeCode,
+                        style = episodeBadgeStyle,
+                        maxLines = 1
+                    )
+                }
+
+                FocusMarqueeText(
+                    text = episode.title.localizeEpisodeTitle(context),
+                    focused = isFocused && !suppressMarquee,
+                    style = titleStyle,
+                    color = textPrimary,
+                )
+
+                if (description.isNotBlank()) {
+                    Text(
+                        text = description,
+                        style = descriptionStyle,
+                        maxLines = cardMetrics.descriptionMaxLines,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (runtimeLabel != null || ratingLabel != null || formattedDate.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        runtimeLabel?.let { runtime ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Schedule,
+                                    contentDescription = null,
+                                    tint = textSecondary,
+                                    modifier = Modifier.size(cardMetrics.metadataIconSize)
+                                )
+                                Text(
+                                    text = runtime,
+                                    style = metaLabelStyle,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        ratingLabel?.let { rating ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ImdbRatingSourceLabel(
+                                    logoModifier = Modifier
+                                        .width(cardMetrics.imdbLogoWidth)
+                                        .height(cardMetrics.imdbLogoHeight),
+                                    textStyle = metaLabelStyle,
+                                    textColor = textSecondary
+                                )
+                                Text(
+                                    text = rating,
+                                    style = ratingStyle,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        if (formattedDate.isNotBlank()) {
+                            Text(
+                                text = formattedDate,
+                                style = metaLabelStyle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (showProgress) {
+                val progressBarRadius = cardMetrics.progressBarHeight / 2
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = cardMetrics.contentPadding,
+                            end = cardMetrics.contentPadding,
+                            bottom = cardMetrics.contentPadding * 0.5f
+                        )
+                        .fillMaxWidth()
+                        .height(cardMetrics.progressBarHeight)
+                        .drawWithCache {
+                            val r = progressBarRadius.toPx()
+                            val cr = androidx.compose.ui.geometry.CornerRadius(r)
+                            val fillWidth = size.width * progressPercent
+                            onDrawBehind {
+                                drawRoundRect(color = progressBgColor, cornerRadius = cr)
+                                drawRoundRect(
+                                    color = primaryColor,
+                                    size = androidx.compose.ui.geometry.Size(fillWidth, size.height),
+                                    cornerRadius = cr
+                                )
+                            }
+                        }
+                )
+            }
+
+            if (showCompletedBadge) {
+                WatchedMarker(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(
+                            start = cardMetrics.statusBadgeInset,
+                            top = cardMetrics.statusBadgeInset
+                        ),
+                    size = cardMetrics.statusBadgeSize,
+                    iconSize = cardMetrics.statusIconSize
+                )
+            }
+
+            if (isUnavailable) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(
+                            end = cardMetrics.statusBadgeInset,
+                            top = cardMetrics.statusBadgeInset
+                        )
+                        .background(
+                            color = Color(0xCC5D4037),
+                            shape = badgeShape
+                        )
+                        .padding(
+                            horizontal = cardMetrics.episodeBadgeHorizontalPadding,
+                            vertical = cardMetrics.episodeBadgeVerticalPadding
+                        )
+                ) {
+                    Text(
+                        text = strUnavailable.uppercase(Locale.getDefault()),
+                        style = episodeBadgeStyle,
+                        maxLines = 1
+                    )
+                }
+            } else if (showNotStartedBadge) {
+                val dashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(7f, 5f), 0f) }
+                Canvas(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(
+                            start = cardMetrics.statusBadgeInset,
+                            top = cardMetrics.statusBadgeInset
+                        )
+                        .size(cardMetrics.statusBadgeSize)
+                ) {
+                    drawCircle(
+                        color = notStartedBadgeColor,
+                        style = Stroke(
+                            width = PlayTorrioTheme.spacing.xxs.toPx(),
+                            pathEffect = dashEffect
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun SeasonOptionsDialog(
+    season: Int,
+    isFullyWatched: Boolean,
+    hasPreviousSeasons: Boolean = false,
+    onDismiss: () -> Unit,
+    onMarkSeasonWatched: () -> Unit,
+    onMarkSeasonUnwatched: () -> Unit,
+    onMarkPreviousSeasonsWatched: () -> Unit = {}
+) {
+    val primaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        primaryFocusRequester.requestFocus()
+    }
+
+    PlayTorrioDialog(
+        onDismiss = onDismiss,
+        title = if (season == 0) stringResource(R.string.episodes_specials) else stringResource(R.string.episodes_season, season),
+        subtitle = stringResource(R.string.episodes_season_actions)
+    ) {
+        Button(
+            onClick = if (isFullyWatched) onMarkSeasonUnwatched else onMarkSeasonWatched,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(primaryFocusRequester),
+            colors = ButtonDefaults.colors(
+                containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                contentColor = PlayTorrioTheme.colors.TextPrimary
+            )
+        ) {
+            Text(if (isFullyWatched) stringResource(R.string.episodes_mark_season_unwatched) else stringResource(R.string.episodes_mark_season_watched))
+        }
+
+        if (hasPreviousSeasons && season > 0) {
+            Button(
+                onClick = onMarkPreviousSeasonsWatched,
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                    contentColor = PlayTorrioTheme.colors.TextPrimary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.episodes_mark_previous_seasons_watched))
+            }
+        }
+    }
+}
+
+private data class EpisodeCardMetrics(
+    val rowHorizontalPadding: Dp,
+    val rowVerticalPadding: Dp,
+    val itemSpacing: Dp,
+    val cardWidth: Dp,
+    val cardHeight: Dp,
+    val cornerRadius: Dp,
+    val contentPadding: Dp,
+    val contentBottomPadding: Dp,
+    val episodeBadgeHorizontalPadding: Dp,
+    val episodeBadgeVerticalPadding: Dp,
+    val episodeBadgeCornerRadius: Dp,
+    val episodeBadgeLetterSpacing: androidx.compose.ui.unit.TextUnit,
+    val titleLineHeight: androidx.compose.ui.unit.TextUnit,
+    val descriptionLineHeight: androidx.compose.ui.unit.TextUnit,
+    val descriptionMaxLines: Int,
+    val metadataIconSize: Dp,
+    val imdbLogoWidth: Dp,
+    val imdbLogoHeight: Dp,
+    val progressBarHeight: Dp,
+    val statusBadgeSize: Dp,
+    val statusIconSize: Dp,
+    val statusBadgeInset: Dp
+)
+
+@Composable
+private fun rememberEpisodeCardMetrics(posterCardCornerRadiusDp: Int = 12): EpisodeCardMetrics {
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val userCornerRadius = posterCardCornerRadiusDp.dp
+    return remember(screenWidthDp, userCornerRadius) {
+        when {
+            screenWidthDp >= 1300 -> EpisodeCardMetrics(
+                rowHorizontalPadding = PlayTorrioTheme.spacing.huge,
+                rowVerticalPadding = 18.dp,
+                itemSpacing = 20.dp,
+                cardWidth = 400.dp,
+                cardHeight = 263.dp,
+                cornerRadius = userCornerRadius,
+                contentPadding = 20.dp,
+                contentBottomPadding = PlayTorrioTheme.spacing.xl,
+                episodeBadgeHorizontalPadding = 10.dp,
+                episodeBadgeVerticalPadding = 5.dp,
+                episodeBadgeCornerRadius = PlayTorrioTheme.spacing.sm,
+                episodeBadgeLetterSpacing = 1.0.sp,
+                titleLineHeight = 28.sp,
+                descriptionLineHeight = 22.sp,
+                descriptionMaxLines = 4,
+                metadataIconSize = PlayTorrioTheme.spacing.lg,
+                imdbLogoWidth = 28.dp,
+                imdbLogoHeight = 14.dp,
+                progressBarHeight = PlayTorrioTheme.spacing.xs,
+                statusBadgeSize = PlayTorrioTheme.spacing.xxl,
+                statusIconSize = 20.dp,
+                statusBadgeInset = PlayTorrioTheme.spacing.lg
+            )
+
+            screenWidthDp >= 1000 -> EpisodeCardMetrics(
+                rowHorizontalPadding = 52.dp,
+                rowVerticalPadding = 18.dp,
+                itemSpacing = 18.dp,
+                cardWidth = 360.dp,
+                cardHeight = 235.dp,
+                cornerRadius = userCornerRadius,
+                contentPadding = 18.dp,
+                contentBottomPadding = 22.dp,
+                episodeBadgeHorizontalPadding = 9.dp,
+                episodeBadgeVerticalPadding = PlayTorrioTheme.spacing.xs,
+                episodeBadgeCornerRadius = 7.dp,
+                episodeBadgeLetterSpacing = 0.9.sp,
+                titleLineHeight = 25.sp,
+                descriptionLineHeight = 20.sp,
+                descriptionMaxLines = 4,
+                metadataIconSize = 15.dp,
+                imdbLogoWidth = 26.dp,
+                imdbLogoHeight = 13.dp,
+                progressBarHeight = PlayTorrioTheme.spacing.xs,
+                statusBadgeSize = 28.dp,
+                statusIconSize = 18.dp,
+                statusBadgeInset = 14.dp
+            )
+
+            screenWidthDp >= 760 -> EpisodeCardMetrics(
+                rowHorizontalPadding = PlayTorrioTheme.spacing.xxxl,
+                rowVerticalPadding = PlayTorrioTheme.spacing.lg,
+                itemSpacing = PlayTorrioTheme.spacing.lg,
+                cardWidth = 320.dp,
+                cardHeight = 207.dp,
+                cornerRadius = userCornerRadius,
+                contentPadding = PlayTorrioTheme.spacing.lg,
+                contentBottomPadding = 20.dp,
+                episodeBadgeHorizontalPadding = PlayTorrioTheme.spacing.sm,
+                episodeBadgeVerticalPadding = PlayTorrioTheme.spacing.xs,
+                episodeBadgeCornerRadius = 6.dp,
+                episodeBadgeLetterSpacing = 0.9.sp,
+                titleLineHeight = 22.sp,
+                descriptionLineHeight = 18.sp,
+                descriptionMaxLines = 3,
+                metadataIconSize = 14.dp,
+                imdbLogoWidth = PlayTorrioTheme.spacing.xl,
+                imdbLogoHeight = PlayTorrioTheme.spacing.md,
+                progressBarHeight = PlayTorrioTheme.spacing.xs,
+                statusBadgeSize = PlayTorrioTheme.spacing.xl,
+                statusIconSize = PlayTorrioTheme.spacing.lg,
+                statusBadgeInset = PlayTorrioTheme.spacing.md
+            )
+
+            else -> EpisodeCardMetrics(
+                rowHorizontalPadding = PlayTorrioTheme.spacing.xxl,
+                rowVerticalPadding = 14.dp,
+                itemSpacing = 14.dp,
+                cardWidth = 280.dp,
+                cardHeight = 179.dp,
+                cornerRadius = userCornerRadius,
+                contentPadding = 14.dp,
+                contentBottomPadding = PlayTorrioTheme.spacing.lg,
+                episodeBadgeHorizontalPadding = 7.dp,
+                episodeBadgeVerticalPadding = 3.dp,
+                episodeBadgeCornerRadius = 5.dp,
+                episodeBadgeLetterSpacing = 0.8.sp,
+                titleLineHeight = 19.sp,
+                descriptionLineHeight = 16.sp,
+                descriptionMaxLines = 3,
+                metadataIconSize = 13.dp,
+                imdbLogoWidth = 22.dp,
+                imdbLogoHeight = 11.dp,
+                progressBarHeight = PlayTorrioTheme.spacing.xs,
+                statusBadgeSize = 22.dp,
+                statusIconSize = 14.dp,
+                statusBadgeInset = 10.dp
+            )
+        }
+    }
+}
+
+private fun formatEpisodeRuntime(runtimeMinutes: Int): String {
+    if (runtimeMinutes <= 0) return ""
+    val hours = runtimeMinutes / 60
+    val minutes = runtimeMinutes % 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h"
+        else -> "${minutes}m"
+    }
+}
+
+private fun formatEpisodeCardDate(isoDate: String): String {
+    val locale = Locale.getDefault()
+    val bestPattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMMy")
+    val formatter = java.time.format.DateTimeFormatter.ofPattern(bestPattern, locale)
+    val localDate = parseEpisodeReleaseLocalDate(isoDate) ?: return ""
+    return formatter.format(localDate)
+}
+
+private fun isSelectKey(keyCode: Int): Boolean {
+    return keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+}
+
+private fun episodePendingKey(video: Video): String {
+    return "${video.id}:${video.season ?: -1}:${video.episode ?: -1}"
+}

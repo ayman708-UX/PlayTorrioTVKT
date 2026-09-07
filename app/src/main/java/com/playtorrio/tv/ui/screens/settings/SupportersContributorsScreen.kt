@@ -1,0 +1,1341 @@
+@file:OptIn(ExperimentalTvMaterial3Api::class)
+
+package com.playtorrio.tv.ui.screens.settings
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import com.playtorrio.tv.BuildConfig
+import com.playtorrio.tv.R
+import com.playtorrio.tv.core.qr.QrCodeGenerator
+import com.playtorrio.tv.data.repository.DevelopmentSponsor
+import com.playtorrio.tv.data.repository.GitHubContributor
+import com.playtorrio.tv.data.repository.SupporterMember
+import com.playtorrio.tv.domain.model.MemberTier
+import com.playtorrio.tv.ui.components.PlayTorrioDialog
+import com.playtorrio.tv.ui.screens.detail.requestFocusAfterFrames
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private val SUPPORT_URL: String
+    get() = BuildConfig.SUPPORT_URL
+        .takeIf { it.isNotBlank() }
+        ?: error("SUPPORT_URL is missing. Set it in local.properties or local.dev.properties.")
+        .removeSuffix("/")
+
+@Composable
+fun SupportersContributorsScreen(
+    viewModel: SupportersContributorsViewModel = hiltViewModel(),
+    onBackPress: () -> Unit = {}
+) {
+    var showMembershipQr by remember { mutableStateOf(false) }
+    val membershipActionFocusRequester = remember { FocusRequester() }
+    val membershipBackFocusRequester = remember { FocusRequester() }
+
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val tabFocusRequesters = remember {
+        SupportersContributorsTab.entries.associateWith { FocusRequester() }
+    }
+    val supporterFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val sponsorFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val contributorFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    var pendingSupporterRestoreKey by remember { mutableStateOf<String?>(null) }
+    var pendingSponsorRestoreKey by remember { mutableStateOf<String?>(null) }
+    var pendingContributorRestoreKey by remember { mutableStateOf<String?>(null) }
+
+    BackHandler {
+        when {
+            showMembershipQr -> showMembershipQr = false
+            uiState.selectedContributor != null -> {
+                pendingContributorRestoreKey = uiState.selectedContributor?.id
+                viewModel.dismissContributorDetails()
+            }
+            uiState.selectedSupporter != null -> {
+                pendingSupporterRestoreKey = uiState.selectedSupporter?.key
+                viewModel.dismissSupporterDetails()
+            }
+            uiState.selectedSponsor != null -> {
+                pendingSponsorRestoreKey = uiState.selectedSponsor?.id
+                viewModel.dismissSponsorDetails()
+            }
+            else -> onBackPress()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        tabFocusRequesters.getValue(SupportersContributorsTab.Contributors).requestFocusAfterFrames()
+    }
+
+    LaunchedEffect(uiState.supporters) {
+        supporterFocusRequesters.keys.retainAll(uiState.supporters.map { it.key }.toSet())
+    }
+
+    LaunchedEffect(uiState.sponsors) {
+        sponsorFocusRequesters.keys.retainAll(uiState.sponsors.map { it.id }.toSet())
+    }
+
+    LaunchedEffect(uiState.contributors) {
+        contributorFocusRequesters.keys.retainAll(uiState.contributors.map { it.id }.toSet())
+    }
+
+    LaunchedEffect(uiState.selectedSupporter, pendingSupporterRestoreKey) {
+        val key = pendingSupporterRestoreKey ?: return@LaunchedEffect
+        if (uiState.selectedSupporter != null) return@LaunchedEffect
+        supporterFocusRequesters[key]?.requestFocusAfterFrames()
+        pendingSupporterRestoreKey = null
+    }
+
+    LaunchedEffect(uiState.selectedSponsor, pendingSponsorRestoreKey) {
+        val key = pendingSponsorRestoreKey ?: return@LaunchedEffect
+        if (uiState.selectedSponsor != null) return@LaunchedEffect
+        sponsorFocusRequesters[key]?.requestFocusAfterFrames()
+        pendingSponsorRestoreKey = null
+    }
+
+    LaunchedEffect(uiState.selectedContributor, pendingContributorRestoreKey) {
+        val key = pendingContributorRestoreKey ?: return@LaunchedEffect
+        if (uiState.selectedContributor != null) return@LaunchedEffect
+        contributorFocusRequesters[key]?.requestFocusAfterFrames()
+        pendingContributorRestoreKey = null
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 36.dp, vertical = 28.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xl)
+        ) {
+            SupporterMembershipPanel(
+                state = uiState.membership,
+                supportUrl = SUPPORT_URL,
+                modifier = Modifier.weight(0.35f),
+                actionFocusRequester = membershipActionFocusRequester,
+                backFocusRequester = membershipBackFocusRequester,
+                showQr = showMembershipQr,
+                onShowQr = { showMembershipQr = true },
+                onHideQr = { showMembershipQr = false },
+                onRefresh = viewModel::refreshMembership
+            )
+
+            SupportersContentPanel(
+                uiState = uiState,
+                leftFocusRequester = if (showMembershipQr) {
+                    membershipBackFocusRequester
+                } else {
+                    membershipActionFocusRequester
+                },
+                tabFocusRequesters = tabFocusRequesters,
+                supporterFocusRequesters = supporterFocusRequesters,
+                sponsorFocusRequesters = sponsorFocusRequesters,
+                contributorFocusRequesters = contributorFocusRequesters,
+                onSelectTab = viewModel::onSelectTab,
+                onRetrySupporters = viewModel::retrySupporters,
+                onRetrySponsors = viewModel::retrySponsors,
+                onRetryContributors = viewModel::retryContributors,
+                onSupporterClick = viewModel::onSupporterSelected,
+                onSponsorClick = viewModel::onSponsorSelected,
+                onContributorClick = viewModel::onContributorSelected,
+                modifier = Modifier.weight(0.65f)
+            )
+        }
+    }
+
+    uiState.selectedSupporter?.let { supporter ->
+        SupporterDetailsDialog(
+            supporter = supporter,
+            onDismiss = {
+                pendingSupporterRestoreKey = supporter.key
+                viewModel.dismissSupporterDetails()
+            }
+        )
+    }
+
+    uiState.selectedSponsor?.let { sponsor ->
+        SponsorDetailsDialog(
+            sponsor = sponsor,
+            onDismiss = {
+                pendingSponsorRestoreKey = sponsor.id
+                viewModel.dismissSponsorDetails()
+            }
+        )
+    }
+
+    uiState.selectedContributor?.let { contributor ->
+        ContributorDetailsDialog(
+            contributor = contributor,
+            onDismiss = {
+                pendingContributorRestoreKey = contributor.id
+                viewModel.dismissContributorDetails()
+            }
+        )
+    }
+}
+
+@Composable
+private fun SupportersContentPanel(
+    uiState: SupportersContributorsUiState,
+    leftFocusRequester: FocusRequester,
+    tabFocusRequesters: Map<SupportersContributorsTab, FocusRequester>,
+    supporterFocusRequesters: MutableMap<String, FocusRequester>,
+    sponsorFocusRequesters: MutableMap<String, FocusRequester>,
+    contributorFocusRequesters: MutableMap<String, FocusRequester>,
+    onSelectTab: (SupportersContributorsTab) -> Unit,
+    onRetrySupporters: () -> Unit,
+    onRetrySponsors: () -> Unit,
+    onRetryContributors: () -> Unit,
+    onSupporterClick: (SupporterMember) -> Unit,
+    onSponsorClick: (DevelopmentSponsor) -> Unit,
+    onContributorClick: (GitHubContributor) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val selectedTabRequester = tabFocusRequesters.getValue(uiState.selectedTab)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(28.dp))
+            .background(PlayTorrioTheme.colors.BackgroundElevated)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(28.dp))
+            .padding(PlayTorrioTheme.spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRestorer(selectedTabRequester),
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+        ) {
+            SupportersTabButton(
+                label = stringResource(R.string.supporters_tab),
+                selected = uiState.selectedTab == SupportersContributorsTab.Supporters,
+                leftFocusRequester = leftFocusRequester,
+                focusRequester = tabFocusRequesters.getValue(SupportersContributorsTab.Supporters),
+                onClick = { onSelectTab(SupportersContributorsTab.Supporters) }
+            )
+            SupportersTabButton(
+                label = stringResource(R.string.sponsors_tab),
+                selected = uiState.selectedTab == SupportersContributorsTab.Sponsors,
+                leftFocusRequester = null,
+                focusRequester = tabFocusRequesters.getValue(SupportersContributorsTab.Sponsors),
+                onClick = { onSelectTab(SupportersContributorsTab.Sponsors) }
+            )
+            SupportersTabButton(
+                label = stringResource(R.string.contributors_tab),
+                selected = uiState.selectedTab == SupportersContributorsTab.Contributors,
+                leftFocusRequester = null,
+                focusRequester = tabFocusRequesters.getValue(SupportersContributorsTab.Contributors),
+                onClick = { onSelectTab(SupportersContributorsTab.Contributors) }
+            )
+        }
+
+        when (uiState.selectedTab) {
+            SupportersContributorsTab.Supporters -> SupportersTabContent(
+                uiState = uiState,
+                leftFocusRequester = leftFocusRequester,
+                upFocusRequester = selectedTabRequester,
+                supporterFocusRequesters = supporterFocusRequesters,
+                onRetry = onRetrySupporters,
+                onSupporterClick = onSupporterClick,
+                modifier = Modifier.weight(1f)
+            )
+            SupportersContributorsTab.Sponsors -> SponsorsTabContent(
+                uiState = uiState,
+                leftFocusRequester = leftFocusRequester,
+                upFocusRequester = selectedTabRequester,
+                sponsorFocusRequesters = sponsorFocusRequesters,
+                onRetry = onRetrySponsors,
+                onSponsorClick = onSponsorClick,
+                modifier = Modifier.weight(1f)
+            )
+            SupportersContributorsTab.Contributors -> ContributorsTabContent(
+                uiState = uiState,
+                leftFocusRequester = leftFocusRequester,
+                upFocusRequester = selectedTabRequester,
+                contributorFocusRequesters = contributorFocusRequesters,
+                onRetry = onRetryContributors,
+                onContributorClick = onContributorClick,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SupportersTabContent(
+    uiState: SupportersContributorsUiState,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    supporterFocusRequesters: MutableMap<String, FocusRequester>,
+    onRetry: () -> Unit,
+    onSupporterClick: (SupporterMember) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+    ) {
+        when {
+            uiState.isSupportersLoading -> CenterStatusText(
+                text = stringResource(R.string.supporters_loading),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.supportersErrorMessage != null -> TabErrorState(
+                title = stringResource(R.string.supporters_error_title),
+                message = uiState.supportersErrorMessage,
+                leftFocusRequester = leftFocusRequester,
+                onRetry = onRetry,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.hasLoadedSupporters && uiState.supporters.isEmpty() -> CenterStatusText(
+                text = stringResource(R.string.supporters_empty),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            else -> {
+                val firstRequester = uiState.supporters.firstOrNull()?.let { supporter ->
+                    supporterFocusRequesters.getOrPut(supporter.key) { FocusRequester() }
+                } ?: FocusRequester()
+                val supportersListState = rememberLazyListState()
+
+                LazyColumn(
+                    state = supportersListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp)
+                        .focusRestorer(firstRequester),
+                    verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md),
+                    contentPadding = PaddingValues(top = 6.dp, bottom = PlayTorrioTheme.spacing.sm)
+                ) {
+                    items(uiState.supporters, key = { it.key }) { supporter ->
+                        val requester = remember(supporter.key) {
+                            supporterFocusRequesters.getOrPut(supporter.key) { FocusRequester() }
+                        }
+                        val isFirstItem = supporter.key == uiState.supporters.firstOrNull()?.key
+                        SupporterCard(
+                            supporter = supporter,
+                            focusRequester = requester,
+                            leftFocusRequester = leftFocusRequester,
+                            upFocusRequester = if (isFirstItem) upFocusRequester else null,
+                            onClick = { onSupporterClick(supporter) }
+                        )
+                    }
+                }
+                SettingsVerticalScrollIndicators(state = supportersListState)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SponsorsTabContent(
+    uiState: SupportersContributorsUiState,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    sponsorFocusRequesters: MutableMap<String, FocusRequester>,
+    onRetry: () -> Unit,
+    onSponsorClick: (DevelopmentSponsor) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+    ) {
+        when {
+            uiState.isSponsorsLoading -> CenterStatusText(
+                text = stringResource(R.string.sponsors_loading),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.sponsorsErrorMessage != null -> TabErrorState(
+                title = stringResource(R.string.sponsors_error_title),
+                message = uiState.sponsorsErrorMessage,
+                leftFocusRequester = leftFocusRequester,
+                onRetry = onRetry,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.hasLoadedSponsors && uiState.sponsors.isEmpty() -> CenterStatusText(
+                text = stringResource(R.string.sponsors_empty),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            else -> {
+                val firstRequester = uiState.sponsors.firstOrNull()?.let { sponsor ->
+                    sponsorFocusRequesters.getOrPut(sponsor.id) { FocusRequester() }
+                } ?: FocusRequester()
+                val sponsorsListState = rememberLazyListState()
+
+                LazyColumn(
+                    state = sponsorsListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp)
+                        .focusRestorer(firstRequester),
+                    verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md),
+                    contentPadding = PaddingValues(top = 6.dp, bottom = PlayTorrioTheme.spacing.sm)
+                ) {
+                    items(uiState.sponsors, key = { it.id }) { sponsor ->
+                        val requester = remember(sponsor.id) {
+                            sponsorFocusRequesters.getOrPut(sponsor.id) { FocusRequester() }
+                        }
+                        val isFirstItem = sponsor.id == uiState.sponsors.firstOrNull()?.id
+                        SponsorCard(
+                            sponsor = sponsor,
+                            focusRequester = requester,
+                            leftFocusRequester = leftFocusRequester,
+                            upFocusRequester = if (isFirstItem) upFocusRequester else null,
+                            onClick = { onSponsorClick(sponsor) }
+                        )
+                    }
+                }
+                SettingsVerticalScrollIndicators(state = sponsorsListState)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContributorsTabContent(
+    uiState: SupportersContributorsUiState,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    contributorFocusRequesters: MutableMap<String, FocusRequester>,
+    onRetry: () -> Unit,
+    onContributorClick: (GitHubContributor) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(PlayTorrioTheme.spacing.xl))
+    ) {
+        when {
+            uiState.isContributorsLoading -> CenterStatusText(
+                text = stringResource(R.string.contributors_loading),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.contributorsErrorMessage != null -> TabErrorState(
+                title = stringResource(R.string.contributors_error_title),
+                message = uiState.contributorsErrorMessage,
+                leftFocusRequester = leftFocusRequester,
+                onRetry = onRetry,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            uiState.hasLoadedContributors && uiState.contributors.isEmpty() -> CenterStatusText(
+                text = stringResource(R.string.contributors_empty),
+                modifier = Modifier.fillMaxSize()
+            )
+
+            else -> {
+                val firstRequester = uiState.contributors.firstOrNull()?.let { contributor ->
+                    contributorFocusRequesters.getOrPut(contributor.id) { FocusRequester() }
+                } ?: FocusRequester()
+                val contributorsListState = rememberLazyListState()
+
+                LazyColumn(
+                    state = contributorsListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp)
+                        .focusRestorer(firstRequester),
+                    verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md),
+                    contentPadding = PaddingValues(top = 6.dp, bottom = PlayTorrioTheme.spacing.sm)
+                ) {
+                    items(uiState.contributors, key = { it.id }) { contributor ->
+                        val requester = remember(contributor.id) {
+                            contributorFocusRequesters.getOrPut(contributor.id) { FocusRequester() }
+                        }
+                        val isFirstItem = contributor.id == uiState.contributors.firstOrNull()?.id
+                        ContributorCard(
+                            contributor = contributor,
+                            focusRequester = requester,
+                            leftFocusRequester = leftFocusRequester,
+                            upFocusRequester = if (isFirstItem) upFocusRequester else null,
+                            onClick = { onContributorClick(contributor) }
+                        )
+                    }
+                }
+                SettingsVerticalScrollIndicators(state = contributorsListState)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CenterStatusText(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = PlayTorrioTheme.colors.TextSecondary,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun TabErrorState(
+    title: String,
+    message: String,
+    leftFocusRequester: FocusRequester,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val retryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        retryFocusRequester.requestFocusAfterFrames()
+    }
+
+    Box(
+        modifier = modifier.padding(PlayTorrioTheme.spacing.xl),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = PlayTorrioTheme.colors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = PlayTorrioTheme.colors.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            Button(
+                onClick = onRetry,
+                modifier = Modifier
+                    .focusRequester(retryFocusRequester)
+                    .focusProperties { left = leftFocusRequester },
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.Secondary,
+                    focusedContainerColor = PlayTorrioTheme.colors.SecondaryVariant,
+                    contentColor = PlayTorrioTheme.colors.OnSecondary,
+                    focusedContentColor = PlayTorrioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.action_retry))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SupporterCard(
+    supporter: SupporterMember,
+    focusRequester: FocusRequester,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester?,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .focusProperties {
+                left = leftFocusRequester
+                if (upFocusRequester != null) up = upFocusRequester
+            }
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = CardDefaults.colors(
+            containerColor = PlayTorrioTheme.colors.BackgroundCard,
+            focusedContainerColor = PlayTorrioTheme.colors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border),
+                shape = RoundedCornerShape(22.dp)
+            ),
+            focusedBorder = Border(
+                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                shape = RoundedCornerShape(22.dp)
+            )
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(22.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.02f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = PlayTorrioTheme.spacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            PersonAvatar(
+                label = supporter.name,
+                avatarUrl = supporter.avatarUrl,
+                modifier = Modifier.size(58.dp)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = supporter.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PlayTorrioTheme.colors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+                Text(
+                    text = supporterTierLabel(supporter.membershipLevel),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PlayTorrioTheme.colors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                formatSupporterDate(supporter.supporterSince)?.let { date ->
+                    Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+                    Text(
+                        text = stringResource(R.string.supporters_since, date),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PlayTorrioTheme.colors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                tint = if (isFocused) PlayTorrioTheme.colors.FocusRing else PlayTorrioTheme.colors.TextTertiary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SponsorCard(
+    sponsor: DevelopmentSponsor,
+    focusRequester: FocusRequester,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester?,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .focusProperties {
+                left = leftFocusRequester
+                if (upFocusRequester != null) up = upFocusRequester
+            }
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = CardDefaults.colors(
+            containerColor = PlayTorrioTheme.colors.BackgroundCard,
+            focusedContainerColor = PlayTorrioTheme.colors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border),
+                shape = RoundedCornerShape(22.dp)
+            ),
+            focusedBorder = Border(
+                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                shape = RoundedCornerShape(22.dp)
+            )
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(22.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.02f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = PlayTorrioTheme.spacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            NameAvatar(
+                label = sponsor.name,
+                modifier = Modifier.size(58.dp)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = sponsor.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PlayTorrioTheme.colors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                tint = if (isFocused) PlayTorrioTheme.colors.FocusRing else PlayTorrioTheme.colors.TextTertiary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContributorCard(
+    contributor: GitHubContributor,
+    focusRequester: FocusRequester,
+    leftFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester?,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .focusProperties {
+                left = leftFocusRequester
+                if (upFocusRequester != null) up = upFocusRequester
+            }
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = CardDefaults.colors(
+            containerColor = PlayTorrioTheme.colors.BackgroundCard,
+            focusedContainerColor = PlayTorrioTheme.colors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border),
+                shape = RoundedCornerShape(22.dp)
+            ),
+            focusedBorder = Border(
+                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                shape = RoundedCornerShape(22.dp)
+            )
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(22.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.02f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = PlayTorrioTheme.spacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            PersonAvatar(
+                label = contributor.name,
+                avatarUrl = contributor.avatarUrl,
+                modifier = Modifier.size(58.dp)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.sm)
+                ) {
+                    Text(
+                        text = contributor.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    contributorRoleLabel(contributor.githubLogin ?: contributor.name)?.let { role ->
+                        ContributorRoleBadge(role = role)
+                    }
+                }
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                tint = if (isFocused) PlayTorrioTheme.colors.FocusRing else PlayTorrioTheme.colors.TextTertiary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContributorRoleBadge(role: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(PlayTorrioTheme.radii.sm))
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(PlayTorrioTheme.radii.sm))
+            .padding(horizontal = PlayTorrioTheme.spacing.sm, vertical = PlayTorrioTheme.spacing.xs),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = role,
+            style = MaterialTheme.typography.labelSmall,
+            color = PlayTorrioTheme.colors.TextSecondary,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun NameAvatar(
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    val initial = label.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = initial,
+            style = MaterialTheme.typography.titleMedium,
+            color = PlayTorrioTheme.colors.TextPrimary,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun PersonAvatar(
+    label: String,
+    avatarUrl: String?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val painter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(avatarUrl)
+            .crossfade(true)
+            .build()
+    )
+
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(PlayTorrioTheme.colors.Background)
+            .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (avatarUrl.isNullOrBlank() || painter.state.collectAsState().value is AsyncImagePainter.State.Error) {
+            Text(
+                text = label.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = PlayTorrioTheme.colors.TextPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
+        } else {
+            Image(
+                painter = painter,
+                contentDescription = label,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+}
+
+@Composable
+private fun RowScope.SupportersTabButton(
+    label: String,
+    selected: Boolean,
+    leftFocusRequester: FocusRequester?,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .weight(1f)
+            .heightIn(min = 54.dp)
+            .focusRequester(focusRequester)
+            .then(
+                if (leftFocusRequester != null) {
+                    Modifier.focusProperties { left = leftFocusRequester }
+                } else {
+                    Modifier
+                }
+            )
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+                if (state.isFocused) onClick()
+            },
+        colors = CardDefaults.colors(
+            containerColor = if (selected) PlayTorrioTheme.colors.BackgroundCard else PlayTorrioTheme.colors.Background,
+            focusedContainerColor = PlayTorrioTheme.colors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            border = if (selected) {
+                Border(
+                    border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.hairline, alpha = 0.8f),
+                    shape = RoundedCornerShape(999.dp)
+                )
+            } else {
+                Border.None
+            },
+            focusedBorder = Border(
+                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(999.dp)),
+        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 54.dp)
+                .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = when {
+                    isFocused -> PlayTorrioTheme.colors.TextPrimary
+                    selected -> PlayTorrioTheme.colors.TextPrimary
+                    else -> PlayTorrioTheme.colors.TextSecondary
+                },
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun SponsorDetailsDialog(
+    sponsor: DevelopmentSponsor,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val primaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(sponsor.id) {
+        primaryFocusRequester.requestFocusAfterFrames()
+    }
+
+    PlayTorrioDialog(
+        onDismiss = onDismiss,
+        title = sponsor.name,
+        subtitle = sponsor.channelUrl ?: stringResource(R.string.sponsors_channel_unavailable),
+        width = 560.dp,
+        suppressFirstKeyUp = false
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            NameAvatar(
+                label = sponsor.name,
+                modifier = Modifier.size(72.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.sm)
+            ) {
+                Text(
+                    text = stringResource(R.string.sponsors_detail_copy),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PlayTorrioTheme.colors.TextSecondary
+                )
+                sponsor.channelUrl?.let { url ->
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PlayTorrioTheme.colors.TextSecondary
+                    )
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)) {
+            Button(
+                onClick = {
+                    val channelUrl = sponsor.channelUrl ?: return@Button
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(channelUrl)))
+                    }
+                },
+                enabled = sponsor.channelUrl != null,
+                modifier = Modifier.focusRequester(primaryFocusRequester),
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.Secondary,
+                    focusedContainerColor = PlayTorrioTheme.colors.SecondaryVariant,
+                    contentColor = PlayTorrioTheme.colors.OnSecondary,
+                    focusedContentColor = PlayTorrioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.sponsors_open_channel))
+            }
+
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                    focusedContainerColor = PlayTorrioTheme.colors.FocusBackground,
+                    contentColor = PlayTorrioTheme.colors.TextPrimary,
+                    focusedContentColor = PlayTorrioTheme.colors.Primary
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.action_close))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SupporterDetailsDialog(
+    supporter: SupporterMember,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val primaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(supporter.key) {
+        primaryFocusRequester.requestFocusAfterFrames()
+    }
+
+    PlayTorrioDialog(
+        onDismiss = onDismiss,
+        title = supporter.name,
+        subtitle = supporterTierLabel(supporter.membershipLevel),
+        width = 560.dp,
+        suppressFirstKeyUp = false
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            PersonAvatar(
+                label = supporter.name,
+                avatarUrl = supporter.avatarUrl,
+                modifier = Modifier.size(72.dp)
+            )
+            Text(
+                text = formatSupporterDate(supporter.supporterSince)?.let { date ->
+                    stringResource(R.string.supporters_since, date)
+                } ?: stringResource(R.string.supporters_since_unknown),
+                style = MaterialTheme.typography.bodyMedium,
+                color = PlayTorrioTheme.colors.TextSecondary,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)) {
+            Button(
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SUPPORT_URL)))
+                    }
+                },
+                modifier = Modifier.focusRequester(primaryFocusRequester),
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.Secondary,
+                    focusedContainerColor = PlayTorrioTheme.colors.SecondaryVariant,
+                    contentColor = PlayTorrioTheme.colors.OnSecondary,
+                    focusedContentColor = PlayTorrioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.supporters_open_donations))
+            }
+
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                    focusedContainerColor = PlayTorrioTheme.colors.FocusBackground,
+                    contentColor = PlayTorrioTheme.colors.TextPrimary,
+                    focusedContentColor = PlayTorrioTheme.colors.Primary
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.action_close))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContributorDetailsDialog(
+    contributor: GitHubContributor,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val primaryFocusRequester = remember { FocusRequester() }
+    val contributorSupportKey = contributor.githubLogin ?: contributor.name
+    val supportLink = contributorSupportLink(contributorSupportKey)
+    var showSupportQr by remember(contributor.id) { mutableStateOf(false) }
+    val supportQrBitmap = remember(supportLink?.kofiUrl) {
+        supportLink?.kofiUrl?.let { url ->
+            runCatching { QrCodeGenerator.generate(url, 360) }.getOrNull()
+        }
+    }
+
+    LaunchedEffect(contributor.id) {
+        primaryFocusRequester.requestFocusAfterFrames()
+    }
+
+    PlayTorrioDialog(
+        onDismiss = onDismiss,
+        title = contributor.name,
+        width = 560.dp,
+        suppressFirstKeyUp = false
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            PersonAvatar(
+                label = contributor.name,
+                avatarUrl = contributor.avatarUrl,
+                modifier = Modifier.size(72.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.sm)
+            ) {
+                contributorRoleLabel(contributorSupportKey)?.let { role ->
+                    ContributorRoleBadge(role = role)
+                }
+                Text(
+                    text = contributor.profileUrl ?: stringResource(R.string.contributors_profile_unavailable),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PlayTorrioTheme.colors.TextSecondary
+                )
+                supportLink?.kofiUrl?.let { url ->
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PlayTorrioTheme.colors.TextSecondary
+                    )
+                }
+            }
+        }
+
+        if (showSupportQr && supportQrBitmap != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = PlayTorrioTheme.spacing.sm),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = supportQrBitmap.asImageBitmap(),
+                    contentDescription = stringResource(R.string.cd_contributor_qr),
+                    modifier = Modifier
+                        .size(188.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)) {
+            Button(
+                onClick = {
+                    val profileUrl = contributor.profileUrl ?: return@Button
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(profileUrl))
+                        )
+                    }
+                },
+                enabled = contributor.profileUrl != null,
+                modifier = Modifier.focusRequester(primaryFocusRequester),
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.Secondary,
+                    focusedContainerColor = PlayTorrioTheme.colors.SecondaryVariant,
+                    contentColor = PlayTorrioTheme.colors.OnSecondary,
+                    focusedContentColor = PlayTorrioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.contributors_open_github))
+            }
+
+            supportLink?.kofiUrl?.let {
+                Button(
+                    onClick = { showSupportQr = !showSupportQr },
+                    colors = ButtonDefaults.colors(
+                        containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                        focusedContainerColor = PlayTorrioTheme.colors.FocusBackground,
+                        contentColor = PlayTorrioTheme.colors.TextPrimary,
+                        focusedContentColor = PlayTorrioTheme.colors.Primary
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(50))
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (showSupportQr) {
+                                R.string.contributors_hide_kofi_qr
+                            } else {
+                                R.string.contributors_show_kofi_qr
+                            }
+                        )
+                    )
+                }
+            }
+
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.colors(
+                    containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                    focusedContainerColor = PlayTorrioTheme.colors.FocusBackground,
+                    contentColor = PlayTorrioTheme.colors.TextPrimary,
+                    focusedContentColor = PlayTorrioTheme.colors.Primary
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(text = stringResource(R.string.action_close))
+            }
+        }
+    }
+}
+
+@Composable
+private fun contributorRoleLabel(login: String): String? = when (login.lowercase(Locale.ROOT)) {
+    "milicevicivan" -> stringResource(R.string.contributor_role_translator)
+    "tapframe" -> stringResource(R.string.contributor_role_maintainer)
+    else -> null
+}
+
+private data class ContributorSupportLink(
+    val kofiUrl: String? = null
+)
+
+private val contributorSupportLinks = mapOf(
+    "skoruppa" to ContributorSupportLink(
+        kofiUrl = "https://ko-fi.com/skoruppa"
+    ),
+    "crisszollo" to ContributorSupportLink(
+        kofiUrl = "https://ko-fi.com/crisszollo"
+    ),
+    "whitegiso" to ContributorSupportLink(
+        kofiUrl = "https://ko-fi.com/whitegiso"
+    ),
+    "edoedac0" to ContributorSupportLink(
+        kofiUrl = "https://ko-fi.com/edoedac"
+    )
+)
+
+private fun contributorSupportLink(login: String): ContributorSupportLink? =
+    contributorSupportLinks[login.lowercase(Locale.ROOT)]
+
+@Composable
+private fun supporterTierLabel(tier: MemberTier): String = stringResource(
+    when (tier) {
+        MemberTier.SUPPORTER -> R.string.supporters_level_supporter
+        MemberTier.SUPPORTER_PLUS -> R.string.supporters_level_supporter_plus
+    }
+)
+
+private fun formatSupporterDate(rawDate: String?): String? {
+    if (rawDate.isNullOrBlank()) return null
+    return runCatching {
+        val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault())
+        Instant.parse(rawDate)
+            .atZone(ZoneId.systemDefault())
+            .format(formatter)
+    }.getOrDefault(rawDate)
+}

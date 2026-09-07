@@ -1,0 +1,1384 @@
+@file:OptIn(ExperimentalTvMaterial3Api::class)
+
+package com.playtorrio.tv.ui.screens.stream
+
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import android.view.KeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import com.playtorrio.tv.ui.util.localizeEpisodeTitle
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
+import com.playtorrio.tv.core.player.ExternalPlayerLauncher
+import com.playtorrio.tv.core.streams.StreamBadgePlacement
+import com.playtorrio.tv.core.streams.StreamBadgeSettings
+import com.playtorrio.tv.data.local.PlayerPreference
+import com.playtorrio.tv.domain.model.Stream
+import com.playtorrio.tv.ui.components.SourceChipItem
+import com.playtorrio.tv.ui.components.SourceChipStatus
+import com.playtorrio.tv.ui.components.P2pConsentDialog
+import com.playtorrio.tv.ui.components.StreamBadgeChips
+import com.playtorrio.tv.ui.components.StreamsSkeletonList
+import com.playtorrio.tv.ui.screens.player.LoadingOverlay
+import com.playtorrio.tv.ui.screens.player.AddonFilterChips
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+import com.playtorrio.tv.ui.navigation.sourceSelectionRestoreTarget
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay as coroutineDelay
+import kotlinx.coroutines.launch as coroutineLaunch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
+import com.playtorrio.tv.R
+import android.util.Log
+
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun StreamScreen(
+    viewModel: StreamScreenViewModel = hiltViewModel(),
+    startFromBeginning: Boolean = false,
+    restoreSourceSelection: Boolean = false,
+    onSourceSelectionRestoreHandled: () -> Unit = {},
+    onBackPress: () -> Unit,
+    onStreamSelected: (StreamPlaybackInfo) -> Unit,
+    onAutoPlayResolved: (StreamPlaybackInfo) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val playerPreference by viewModel.playerPreference.collectAsStateWithLifecycle(
+        initialValue = null
+    )
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+    var focusedStreamIndex by rememberSaveable { mutableStateOf(0) }
+    var restoreFocusedStream by rememberSaveable { mutableStateOf(false) }
+    var pendingRestoreOnResume by rememberSaveable { mutableStateOf(false) }
+    var showPlayerChoiceDialog by remember { mutableStateOf(false) }
+    var pendingPlaybackInfo by remember { mutableStateOf<StreamPlaybackInfo?>(null) }
+    var showP2pConsentDialog by remember { mutableStateOf(false) }
+    var pendingTorrentPlaybackInfo by remember { mutableStateOf<StreamPlaybackInfo?>(null) }
+    val p2pEnabled by viewModel.p2pEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val streamBadgeSettings by viewModel.streamBadgeSettings.collectAsStateWithLifecycle(
+        initialValue = StreamBadgeSettings()
+    )
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(restoreSourceSelection) {
+        if (restoreSourceSelection) {
+            pendingRestoreOnResume = false
+            restoreFocusedStream = true
+        }
+    }
+
+    fun launchExternalPlayer(playbackInfo: StreamPlaybackInfo) {
+        val url = playbackInfo.url ?: if (playbackInfo.isTorrent) "torrent://${playbackInfo.infoHash}" else return
+        scope.coroutineLaunch {
+            viewModel.launchExternalPlayer(
+                playbackInfo = playbackInfo,
+                url = url,
+                startFromBeginning = startFromBeginning,
+                context = context
+            )
+        }
+    }
+
+    fun openExternalInBrowser(playbackInfo: StreamPlaybackInfo): Boolean {
+        if (!playbackInfo.isExternal) return false
+        val url = playbackInfo.url?.takeIf { it.isNotBlank() } ?: return false
+        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+        runCatching {
+            context.startActivity(browserIntent)
+        }.onFailure {
+            ExternalPlayerLauncher.launch(
+                context = context,
+                url = url,
+                title = playbackInfo.title,
+                headers = playbackInfo.headers,
+                startFromBeginning = startFromBeginning
+            )
+        }
+        return true
+    }
+
+    fun launchInternalPlayer(playbackInfo: StreamPlaybackInfo) {
+        viewModel.onInternalPlayerLaunching()
+        onStreamSelected(playbackInfo)
+    }
+
+    fun routePlayback(playbackInfo: StreamPlaybackInfo) {
+        if (openExternalInBrowser(playbackInfo)) {
+            return
+        }
+        val preference = playerPreference ?: return
+        if (playbackInfo.isTorrent && !p2pEnabled) {
+            pendingTorrentPlaybackInfo = playbackInfo
+            showP2pConsentDialog = true
+            return
+        }
+        when (preference) {
+            PlayerPreference.INTERNAL -> {
+                launchInternalPlayer(playbackInfo)
+            }
+            PlayerPreference.EXTERNAL -> {
+                if (playbackInfo.url != null || playbackInfo.isTorrent) {
+                    launchExternalPlayer(playbackInfo)
+                }
+            }
+            PlayerPreference.ASK_EVERY_TIME -> {
+                pendingPlaybackInfo = playbackInfo
+                showPlayerChoiceDialog = true
+            }
+        }
+    }
+
+    fun routeAutoPlay(playbackInfo: StreamPlaybackInfo) {
+        if (openExternalInBrowser(playbackInfo)) {
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return
+        }
+        // Always check P2P consent for torrents, even in direct auto-play flow
+        if (playbackInfo.isTorrent && !p2pEnabled) {
+            pendingTorrentPlaybackInfo = playbackInfo
+            showP2pConsentDialog = true
+            return
+        }
+        val preference = playerPreference ?: return
+        if (uiState.isDirectAutoPlayFlow) {
+            // Respect player preference even in direct autoplay flow
+            when (preference) {
+                PlayerPreference.EXTERNAL -> {
+                    val url = playbackInfo.url ?: if (playbackInfo.isTorrent) "torrent://${playbackInfo.infoHash}" else null
+                    url?.let { urlString ->
+                        scope.coroutineLaunch {
+                            viewModel.launchExternalPlayer(
+                                playbackInfo = playbackInfo,
+                                url = urlString,
+                                startFromBeginning = startFromBeginning,
+                                autoLaunch = true,
+                                context = context
+                            )
+                            // Delay pop so external player appears on top
+                            coroutineDelay(1000)
+                            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                            onBackPress()
+                        }
+                    }
+                }
+                PlayerPreference.ASK_EVERY_TIME -> {
+                    pendingPlaybackInfo = playbackInfo
+                    showPlayerChoiceDialog = true
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+                else -> {
+                    viewModel.onInternalPlayerLaunching()
+                    onAutoPlayResolved(playbackInfo)
+                }
+            }
+            return
+        } else {
+            pendingRestoreOnResume = true
+            routePlayback(playbackInfo)
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+        }
+    }
+
+    BackHandler {
+        onBackPress()
+    }
+
+    LaunchedEffect(uiState.autoPlayStream) {
+        val stream = uiState.autoPlayStream ?: return@LaunchedEffect
+        // User aborted the auto-next chain that navigated here — don't auto-launch; show the list.
+        if (viewModel.isAutoNextContinuationAborted()) {
+            viewModel.consumeAbortedAutoNextContinuation()
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return@LaunchedEffect
+        }
+        val playbackInfo = viewModel.resolveStreamForPlayback(stream)
+        if (playbackInfo == null) {
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return@LaunchedEffect
+        }
+        // Torrent streams have url == null but carry an infoHash; navigation
+        // builds a torrent:// sentinel URL downstream.
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
+            viewModel.awaitStreamLinkCacheSave()
+            routeAutoPlay(playbackInfo)
+        }
+    }
+
+    LaunchedEffect(uiState.playbackErrorMessage) {
+        val message = uiState.playbackErrorMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.onPlaybackErrorShown()
+    }
+
+    // Once streams are resolved, release the MainActivity auto-next loader so it doesn't
+    // mask this screen (whether it auto-launches a player or shows the manual list).
+    LaunchedEffect(uiState.isLoading) {
+        if (!uiState.isLoading) {
+            viewModel.dismissExternalAutoNextOverlay(
+                forceRelease = !uiState.isDirectAutoPlayFlow ||
+                    playerPreference != PlayerPreference.EXTERNAL
+            )
+        }
+    }
+
+    LaunchedEffect(uiState.autoPlayPlaybackInfo) {
+        val playbackInfo = uiState.autoPlayPlaybackInfo ?: return@LaunchedEffect
+        // User aborted the auto-next chain that navigated here — don't auto-launch; show the list.
+        if (viewModel.isAutoNextContinuationAborted()) {
+            viewModel.consumeAbortedAutoNextContinuation()
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return@LaunchedEffect
+        }
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
+            // Torrent cached links still need P2P consent
+            if (playbackInfo.isTorrent && !p2pEnabled) {
+                pendingTorrentPlaybackInfo = playbackInfo
+                showP2pConsentDialog = true
+                return@LaunchedEffect
+            }
+            // Respect player preference for cached links too
+            when (playerPreference ?: return@LaunchedEffect) {
+                PlayerPreference.EXTERNAL -> {
+                    val url = playbackInfo.url ?: if (playbackInfo.isTorrent) "torrent://${playbackInfo.infoHash}" else null
+                    url?.let { urlString ->
+                        Log.d("StreamScreen", "autoPlayPlaybackInfo EXTERNAL: launching player, will pop after 800ms")
+                        viewModel.launchExternalPlayer(
+                            playbackInfo = playbackInfo,
+                            url = urlString,
+                            startFromBeginning = startFromBeginning,
+                            autoLaunch = true,
+                            context = context
+                        )
+                    }
+                    // Delay pop so external player appears on top, keep overlay visible
+                    coroutineDelay(1000)
+                    Log.d("StreamScreen", "autoPlayPlaybackInfo EXTERNAL: popping now")
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                    onBackPress()
+                }
+                PlayerPreference.ASK_EVERY_TIME -> {
+                    pendingPlaybackInfo = playbackInfo
+                    showPlayerChoiceDialog = true
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+                else -> {
+                    viewModel.onInternalPlayerLaunching()
+                    onAutoPlayResolved(playbackInfo)
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Always dismiss overlay and stop tracking on resume
+                // covers both ActivityResult path and fire-and-forget path.
+                viewModel.stopExternalPlayerTracking()
+                viewModel.onEvent(StreamScreenEvent.OnResume)
+                if (pendingRestoreOnResume) {
+                    restoreFocusedStream = true
+                    pendingRestoreOnResume = false
+                }
+            } else if (event == Lifecycle.Event.ON_STOP) {
+                // Backgrounded by the external player: playback behind it is healthy,
+                // so the stuck-loader timeout must not treat it as stuck.
+                viewModel.onHostStopped()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Full screen backdrop
+        StreamBackdrop(
+            backdrop = uiState.backdrop ?: uiState.poster,
+            isLoading = uiState.isLoading
+        )
+
+        val showOverlay = uiState.showDirectAutoPlayOverlay || uiState.externalPlayerOverlayVisible
+        if (!uiState.autoPlayDecided) {
+            // Don't render overlay or stream list until ViewModel decides
+            // whether direct autoplay is active — prevents single-frame flash.
+        } else if (showOverlay) {
+            LoadingOverlay(
+                visible = true,
+                backdropUrl = uiState.backdrop ?: uiState.poster,
+                logoUrl = uiState.logo,
+                title = uiState.title,
+                message = if (uiState.directAutoPlayMessage != null) {
+                    uiState.directAutoPlayMessage
+                } else {
+                    null
+                },
+                progress = uiState.directAutoPlayProgress,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // Content overlay
+            Row(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Left side - Title/Logo (centered vertically)
+                LeftContentSection(
+                    title = uiState.title,
+                    logo = uiState.logo,
+                    isEpisode = uiState.isEpisode,
+                    season = uiState.season,
+                    episode = uiState.episode,
+                    episodeName = uiState.episodeName,
+                    runtime = uiState.runtime,
+                    genres = uiState.genres,
+                    year = uiState.year,
+                    modifier = Modifier
+                        .weight(0.4f)
+                        .fillMaxHeight()
+                )
+
+                // Right side - Streams container
+                RightStreamSection(
+                    isLoading = uiState.isLoading,
+                    error = uiState.error,
+                    streams = uiState.filteredStreams,
+                    availableAddons = uiState.availableAddons,
+                    sourceChips = uiState.sourceChips,
+                    selectedAddonFilter = uiState.selectedAddonFilter,
+                    showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
+                    showAddonLogo = streamBadgeSettings.showAddonLogo,
+                    badgePlacement = streamBadgeSettings.badgePlacement,
+                    hasBadgeRules = streamBadgeSettings.rules.hasImport,
+                    onAddonFilterSelected = { viewModel.onEvent(StreamScreenEvent.OnAddonFilterSelected(it)) },
+                    onRefresh = { viewModel.onEvent(StreamScreenEvent.OnRefresh) },
+                    onStreamSelected = { stream ->
+                        val currentIndex = uiState.filteredStreams.indexOfFirst {
+                            it.url == stream.url &&
+                                it.infoHash == stream.infoHash &&
+                                it.ytId == stream.ytId &&
+                                it.addonName == stream.addonName
+                        }
+                        if (currentIndex >= 0) {
+                            focusedStreamIndex = currentIndex
+                        }
+                        scope.coroutineLaunch {
+                            val playbackInfo = viewModel.resolveStreamForPlayback(stream)
+                            if (playbackInfo != null) {
+                                pendingRestoreOnResume = true
+                                routePlayback(playbackInfo)
+                                viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                            }
+                        }
+                    },
+                    focusedStreamIndex = focusedStreamIndex,
+                    shouldRestoreFocusedStream = restoreFocusedStream,
+                    onRestoreFocusedStreamHandled = {
+                        restoreFocusedStream = false
+                        if (restoreSourceSelection) {
+                            onSourceSelectionRestoreHandled()
+                        }
+                    },
+                    onRetry = { viewModel.onEvent(StreamScreenEvent.OnRetry) },
+                    modifier = Modifier
+                        .weight(0.6f)
+                        .fillMaxHeight()
+                )
+            }
+        }
+
+        // Player choice dialog for "Ask every time" preference
+        if (showPlayerChoiceDialog && pendingPlaybackInfo != null) {
+            PlayerChoiceDialog(
+                onInternalSelected = {
+                    showPlayerChoiceDialog = false
+                    pendingPlaybackInfo?.let { launchInternalPlayer(it) }
+                    pendingPlaybackInfo = null
+                },
+                onExternalSelected = {
+                    showPlayerChoiceDialog = false
+                    pendingPlaybackInfo?.let { info ->
+                        if (info.url != null || info.isTorrent) {
+                            launchExternalPlayer(info)
+                        }
+                    }
+                    pendingPlaybackInfo = null
+                },
+                onDismiss = {
+                    showPlayerChoiceDialog = false
+                    pendingPlaybackInfo = null
+                }
+            )
+        }
+
+        if (showP2pConsentDialog && pendingTorrentPlaybackInfo != null) {
+            P2pConsentDialog(
+                onEnableP2p = {
+                    viewModel.enableP2p()
+                    showP2pConsentDialog = false
+                    val info = pendingTorrentPlaybackInfo!!
+                    pendingTorrentPlaybackInfo = null
+                    routePlayback(info)
+                },
+                onDismiss = {
+                    showP2pConsentDialog = false
+                    pendingTorrentPlaybackInfo = null
+                    // Cancelled P2P consent — fall back to manual stream selection
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+            )
+        }
+
+    }
+}
+
+@Composable
+private fun StreamBackdrop(
+    backdrop: String?,
+    isLoading: Boolean
+) {
+    val context = LocalContext.current
+    val backgroundColor = PlayTorrioTheme.colors.Background
+    val backdropModel = remember(context, backdrop) {
+        backdrop?.let { image ->
+            ImageRequest.Builder(context)
+                .data(image)
+                .crossfade(false)
+                .build()
+        }
+    }
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (isLoading) 0.7f else 0.5f,
+        animationSpec = tween(500),
+        label = "backdrop_image_alpha"
+    )
+
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    ) {
+        // Backdrop image
+        if (backdropModel != null) {
+            AsyncImage(
+                model = backdropModel,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = imageAlpha },
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
+            )
+        }
+
+        StreamGradientLayer(
+            bgColor = backgroundColor,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun StreamGradientLayer(
+    bgColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .drawWithCache {
+                val combinedGradient = Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0.0f to bgColor,
+                        0.15f to bgColor.copy(alpha = 0.85f),
+                        0.30f to bgColor.copy(alpha = 0.40f),
+                        0.50f to bgColor.copy(alpha = 0.15f),
+                        0.70f to bgColor.copy(alpha = 0.40f),
+                        0.85f to bgColor.copy(alpha = 0.85f),
+                        1.0f to bgColor
+                    ),
+                    startX = 0f,
+                    endX = size.width
+                )
+                onDrawBehind {
+                    drawRect(brush = combinedGradient)
+                }
+            }
+    )
+}
+
+@Composable
+private fun LeftContentSection(
+    title: String,
+    logo: String?,
+    isEpisode: Boolean,
+    season: Int?,
+    episode: Int?,
+    episodeName: String?,
+    runtime: Int?,
+    genres: String?,
+    year: String?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val logoModel = remember(context, logo) {
+        logo?.let { image ->
+            ImageRequest.Builder(context)
+                .data(image)
+                .crossfade(false)
+                .build()
+        }
+    }
+    val infoText = remember(genres, year) {
+        listOfNotNull(genres, year).joinToString(" • ")
+    }
+    Box(
+        modifier = modifier.padding(start = PlayTorrioTheme.spacing.xxxl, end = PlayTorrioTheme.spacing.xl),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth(0.8f)
+        ) {
+            if (logoModel != null && !logoLoadFailed) {
+                AsyncImage(
+                    model = logoModel,
+                    contentDescription = title,
+                    onError = { logoLoadFailed = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.Center
+                )
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = PlayTorrioTheme.colors.TextPrimary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // Show episode info or movie info
+            if (isEpisode && season != null && episode != null) {
+                // Episode info
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.sm))
+                Text(
+                    text = stringResource(R.string.stream_episode_label, season, episode),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PlayTorrioTheme.extendedColors.textSecondary,
+                    textAlign = TextAlign.Center
+                )
+                if (episodeName != null) {
+                    Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+                    Text(
+                        text = episodeName.localizeEpisodeTitle(LocalContext.current),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (runtime != null) {
+                    Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+                    val runtimeText = if (runtime >= 60) {
+                        val hours = runtime / 60
+                        val mins = runtime % 60
+                        if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
+                    } else {
+                        "${runtime}m"
+                    }
+                    Text(
+                        text = runtimeText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PlayTorrioTheme.extendedColors.textSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                // Movie info - genres and year
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.sm))
+                if (infoText.isNotEmpty()) {
+                    Text(
+                        text = infoText,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = PlayTorrioTheme.extendedColors.textSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun RightStreamSection(
+    isLoading: Boolean,
+    error: String?,
+    streams: List<Stream>,
+    availableAddons: List<String>,
+    sourceChips: List<SourceChipItem>,
+    selectedAddonFilter: String?,
+    showFileSizeBadges: Boolean,
+    showAddonLogo: Boolean,
+    badgePlacement: StreamBadgePlacement,
+    hasBadgeRules: Boolean = false,
+    onAddonFilterSelected: (String?) -> Unit,
+    onRefresh: () -> Unit,
+    onStreamSelected: (Stream) -> Unit,
+    focusedStreamIndex: Int,
+    shouldRestoreFocusedStream: Boolean,
+    onRestoreFocusedStreamHandled: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    var enter by remember { mutableStateOf(false) }
+    var firstStreamFocusRequestId by remember { mutableStateOf(0) }
+    var listHasFocus by remember { mutableStateOf(false) }
+    var userMovedFromFirstResult by remember { mutableStateOf(shouldRestoreFocusedStream) }
+    var firstResultFocusAssigned by remember { mutableStateOf(shouldRestoreFocusedStream) }
+    val scope = rememberCoroutineScope()
+    var focusJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val orderedAddonNames = remember(availableAddons, sourceChips) {
+        buildList {
+            addAll(availableAddons)
+            sourceChips.forEach { if (it.name !in this) add(it.name) }
+        }
+    }
+    val firstStreamKey = streams.firstOrNull()?.stableKey(0)
+    val refreshFocusRequester = remember { FocusRequester() }
+    val allFocusRequester = remember { FocusRequester() }
+    val addonFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val chipFocusRequesters = remember(orderedAddonNames) {
+        // Remove stale entries for addons that no longer exist
+        addonFocusRequesters.keys.retainAll(orderedAddonNames.toSet())
+        buildList {
+            add(refreshFocusRequester)
+            add(allFocusRequester)
+            orderedAddonNames.forEach { addon ->
+                add(addonFocusRequesters.getOrPut(addon) { FocusRequester() })
+            }
+        }
+    }
+    fun onAddonFilterSelectedGuarded(addon: String?) {
+        userMovedFromFirstResult = true
+        onAddonFilterSelected(addon)
+        focusJob?.cancel()
+        focusJob = scope.coroutineLaunch {
+            withFrameNanos {}
+            val targetRequester = if (addon == null) {
+                chipFocusRequesters.getOrNull(1)
+            } else {
+                addonFocusRequesters[addon]
+            }
+            runCatching { targetRequester?.requestFocus() }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        enter = true
+    }
+    LaunchedEffect(shouldRestoreFocusedStream) {
+        if (shouldRestoreFocusedStream) {
+            userMovedFromFirstResult = true
+        }
+    }
+    LaunchedEffect(isLoading, firstStreamKey, userMovedFromFirstResult, firstResultFocusAssigned) {
+        if (!isLoading && firstStreamKey != null && !userMovedFromFirstResult && !firstResultFocusAssigned) {
+            firstResultFocusAssigned = true
+            firstStreamFocusRequestId += 1
+        }
+    }
+    // When on "All" tab and new results arrive above the focused stream, move focus to the new first item.
+    var trackedFirstStreamKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(firstStreamKey, selectedAddonFilter, listHasFocus) {
+        if (selectedAddonFilter != null) {
+            trackedFirstStreamKey = firstStreamKey
+            return@LaunchedEffect
+        }
+        if (firstStreamKey != null && trackedFirstStreamKey != null &&
+            firstStreamKey != trackedFirstStreamKey &&
+            listHasFocus && !userMovedFromFirstResult
+        ) {
+            firstStreamFocusRequestId += 1
+        }
+        trackedFirstStreamKey = firstStreamKey
+    }
+    fun requestChipFocus(index: Int) {
+        if (index !in chipFocusRequesters.indices) return
+        userMovedFromFirstResult = true
+        focusJob?.cancel()
+        focusJob = scope.coroutineLaunch {
+            withFrameNanos { }
+            runCatching { chipFocusRequesters[index].requestFocus() }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .padding(top = PlayTorrioTheme.spacing.xxxl, end = PlayTorrioTheme.spacing.xxxl, bottom = PlayTorrioTheme.spacing.xxxl)
+    ) {
+        val chipRowHeight = PlayTorrioTheme.spacing.huge
+
+        // Addon filter chips
+        Box(modifier = Modifier.height(chipRowHeight)) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = sourceChips.isNotEmpty() || (!isLoading && availableAddons.isNotEmpty()),
+                enter = fadeIn(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300))
+            ) {
+                AddonFilterChips(
+                    addons = availableAddons,
+                    sourceChips = sourceChips,
+                    selectedAddon = selectedAddonFilter,
+                    isStillFetching = sourceChips.any { it.status == SourceChipStatus.LOADING },
+                    onRefresh = {
+                        userMovedFromFirstResult = false
+                        firstResultFocusAssigned = false
+                        onRefresh()
+                    },
+                    onAddonSelected = { onAddonFilterSelected(it) },
+                    externalFocusRequesters = chipFocusRequesters,
+                    externalOrderedNames = orderedAddonNames,
+                    debugTag = "StreamScreen"
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.lg))
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = enter,
+            enter = fadeIn(animationSpec = tween(260)) +
+                slideInHorizontally(
+                    animationSpec = tween(260),
+                    initialOffsetX = { fullWidth -> (fullWidth * 0.06f).toInt() }
+                ),
+            exit = fadeOut(animationSpec = tween(120))
+        ) {
+            // Content area
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(PlayTorrioTheme.radii.xl))
+                    .background(PlayTorrioTheme.colors.BackgroundCard.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    isLoading -> {
+                        LoadingState(showAddonLogo = showAddonLogo)
+                    }
+                    error != null -> {
+                        ErrorState(
+                            message = error,
+                            onRetry = onRetry
+                        )
+                    }
+                    streams.isEmpty() -> {
+                        EmptyState()
+                    }
+                    else -> {
+                        StreamsList(
+                            streams = streams,
+                            onStreamSelected = onStreamSelected,
+                            focusedStreamIndex = focusedStreamIndex,
+                            shouldRestoreFocusedStream = shouldRestoreFocusedStream,
+                            onRestoreFocusedStreamHandled = onRestoreFocusedStreamHandled,
+                            firstStreamFocusRequestId = firstStreamFocusRequestId,
+                            availableAddons = availableAddons,
+                            selectedAddonFilter = selectedAddonFilter,
+                            showFileSizeBadges = showFileSizeBadges,
+                            showAddonLogo = showAddonLogo,
+                            badgePlacement = badgePlacement,
+                            hasBadgeRules = hasBadgeRules,
+                            onAddonFilterSelected = { onAddonFilterSelectedGuarded(it) },
+                            orderedAddonNames = orderedAddonNames,
+                            onRequestChipFocus = { requestChipFocus(it) },
+                            onUserNavigatedFromFirstResult = {
+                                userMovedFromFirstResult = true
+                            },
+                            onFocusChanged = { listHasFocus = it }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LoadingState(showAddonLogo: Boolean = true) {
+    StreamsSkeletonList(showAddonLogo = showAddonLogo)
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ErrorState(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.padding(PlayTorrioTheme.spacing.xxl)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            modifier = Modifier.size(PlayTorrioTheme.spacing.xxxl),
+            tint = PlayTorrioTheme.colors.Error
+        )
+
+        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.lg))
+
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = PlayTorrioTheme.extendedColors.textSecondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+
+        var isFocused by remember { mutableStateOf(false) }
+        Card(
+            onClick = onRetry,
+            modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+            colors = CardDefaults.colors(
+                containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                focusedContainerColor = PlayTorrioTheme.colors.Secondary
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                    shape = RoundedCornerShape(PlayTorrioTheme.radii.sm)
+                )
+            ),
+            shape = CardDefaults.shape(shape = RoundedCornerShape(PlayTorrioTheme.radii.sm)),
+            scale = CardDefaults.scale(focusedScale = 1.02f)
+        ) {
+            Text(
+                text = stringResource(R.string.stream_retry),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isFocused) PlayTorrioTheme.colors.OnSecondary else PlayTorrioTheme.colors.TextPrimary,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyState() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.padding(PlayTorrioTheme.spacing.xxl)
+    ) {
+        Text(
+            text = stringResource(R.string.stream_no_streams),
+            style = MaterialTheme.typography.bodyLarge,
+            color = PlayTorrioTheme.extendedColors.textSecondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.md))
+
+        Text(
+            text = stringResource(R.string.stream_no_streams_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = PlayTorrioTheme.extendedColors.textSecondary,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StreamsList(
+    streams: List<Stream>,
+    onStreamSelected: (Stream) -> Unit,
+    focusedStreamIndex: Int = 0,
+    shouldRestoreFocusedStream: Boolean = false,
+    onRestoreFocusedStreamHandled: () -> Unit = {},
+    firstStreamFocusRequestId: Int = 0,
+    availableAddons: List<String> = emptyList(),
+    selectedAddonFilter: String? = null,
+    showFileSizeBadges: Boolean = true,
+    showAddonLogo: Boolean = true,
+    badgePlacement: StreamBadgePlacement = StreamBadgePlacement.BOTTOM,
+    hasBadgeRules: Boolean = false,
+    onAddonFilterSelected: (String?) -> Unit = {},
+    orderedAddonNames: List<String> = emptyList(),
+    onRequestChipFocus: (Int) -> Unit = {},
+    onUserNavigatedFromFirstResult: () -> Unit = {},
+    onFocusChanged: (Boolean) -> Unit = {}
+) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
+    val restoreFocusRequester = remember { FocusRequester() }
+    val streamListState = rememberLazyListState()
+    val streamKeys = remember(streams) {
+        val seen = mutableMapOf<String, Int>()
+        streams.map { stream ->
+            val base = stream.stableKey(0)
+            val occurrence = seen.getOrDefault(base, 0)
+            seen[base] = occurrence + 1
+            stream.stableKey(occurrence)
+        }
+    }
+    val firstStreamKey = streamKeys.firstOrNull()
+    val streamFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    streamKeys.forEach { key ->
+        streamFocusRequesters.getOrPut(key) { FocusRequester() }
+    }
+    var firstCardHasFocus by remember(firstStreamKey) { mutableStateOf(false) }
+    // Reset scroll position to the top when the addon filter changes (#2538).
+    LaunchedEffect(selectedAddonFilter) {
+        streamListState.scrollToItem(0)
+    }
+
+    LaunchedEffect(firstStreamFocusRequestId) {
+        val requestedKey = firstStreamKey
+        if (firstStreamFocusRequestId <= 0 || requestedKey == null) return@LaunchedEffect
+        streamListState.scrollToItem(0)
+        repeat(30) {
+            withFrameNanos { }
+            if (firstCardHasFocus) return@LaunchedEffect
+            runCatching { streamFocusRequesters.getValue(requestedKey).requestFocus() }
+        }
+    }
+
+    LaunchedEffect(shouldRestoreFocusedStream, focusedStreamIndex, streams.size) {
+        if (!shouldRestoreFocusedStream) return@LaunchedEffect
+        val targetIndex = sourceSelectionRestoreTarget(focusedStreamIndex, streams.size)
+        if (targetIndex == null) {
+            onRestoreFocusedStreamHandled()
+            return@LaunchedEffect
+        }
+        repeat(2) { withFrameNanos { } }
+        try {
+            streamListState.scrollToItem(targetIndex)
+            withFrameNanos { }
+            restoreFocusRequester.requestFocus()
+        } catch (_: Exception) {
+        }
+        onRestoreFocusedStreamHandled()
+    }
+
+    LazyColumn(
+        state = streamListState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(PlayTorrioTheme.spacing.lg)
+            .onFocusChanged { onFocusChanged(it.hasFocus) }
+            .onKeyEvent { event ->
+                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+
+                // Throttle rapid key repeats (long-press)
+                if (event.nativeKeyEvent.repeatCount > 0) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    lastKeyRepeatDispatchRef.set(now)
+                }
+                if (event.key == Key.DirectionDown) {
+                    onUserNavigatedFromFirstResult()
+                }
+                if (orderedAddonNames.isEmpty()) return@onKeyEvent false
+                val allOptions = listOf<String?>(null) + orderedAddonNames
+                val currentIdx = allOptions.indexOf(selectedAddonFilter)
+                when (event.key) {
+                    Key.DirectionLeft -> {
+                        if (isRtl) {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else true
+                        } else {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true }
+                            else { true }
+                        }
+                    }
+                    Key.DirectionRight -> {
+                        if (isRtl) {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true }
+                            else { true }
+                        } else {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else true
+                        }
+                    }
+                    else -> false
+                }
+            },
+        verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md),
+        contentPadding = PaddingValues(start = PlayTorrioTheme.spacing.sm, end = PlayTorrioTheme.spacing.sm, top = PlayTorrioTheme.spacing.sm, bottom = PlayTorrioTheme.spacing.xxl)
+    ) {
+        itemsIndexed(streams, key = { index, _ ->
+            streamKeys[index]
+        }) { index, stream ->
+            Box(modifier = Modifier.padding(vertical = PlayTorrioTheme.spacing.xs)) {
+                StreamCard(
+                    stream = stream,
+                    showFileSizeBadges = showFileSizeBadges,
+                    showAddonLogo = showAddonLogo,
+                    badgePlacement = badgePlacement,
+                    reserveBadgeSpace = hasBadgeRules && stream.badges.isEmpty(),
+                    onClick = { onStreamSelected(stream) },
+                    focusRequester = when {
+                        shouldRestoreFocusedStream && index == focusedStreamIndex.coerceIn(0, (streams.lastIndex).coerceAtLeast(0)) -> restoreFocusRequester
+                        else -> streamFocusRequesters.getValue(streamKeys[index])
+                    },
+                    onFocusChanged = { focused ->
+                        if (index == 0) {
+                            firstCardHasFocus = focused
+                        }
+                    },
+                    onUpKey = if (index == 0) {{
+                        val idx = if (selectedAddonFilter == null) 1
+                                  else orderedAddonNames.indexOf(selectedAddonFilter) + 2
+                        onRequestChipFocus(idx)
+                    }} else null
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun StreamCard(
+    stream: Stream,
+    showFileSizeBadges: Boolean,
+    showAddonLogo: Boolean,
+    badgePlacement: StreamBadgePlacement,
+    reserveBadgeSpace: Boolean = false,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    onFocusChanged: ((Boolean) -> Unit)? = null,
+    onUpKey: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val unknownStreamLabel = stringResource(R.string.stream_unknown)
+    val streamName = remember(stream, unknownStreamLabel) { stream.getDisplayNameOrNull() ?: unknownStreamLabel }
+    val streamDescription = remember(stream) { stream.getDisplayDescription() }
+    val hasBadges = stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null) || reserveBadgeSpace
+
+    var isFocused by remember { mutableStateOf(false) }
+
+    // Track whether badges transitioned from empty to non-empty while this
+    // card was composed. If they did, we animate. If the card enters
+    // composition with badges already present (tab switch), no animation.
+    val hadBadgesOnFirstComposition = remember { stream.badges.isNotEmpty() }
+    val shouldAnimateBadges = stream.badges.isNotEmpty() && !hadBadgesOnFirstComposition
+    // Pre-upscale: decode at 2× target pixels so the hardware compositor
+    // has enough pixel data for smooth edges inside Card RenderNodes.
+    val logoDecodeSize = remember(density) {
+        with(density) { PlayTorrioTheme.spacing.xxl.roundToPx() } * 2
+    }
+    val addonLogoModel = remember(context, stream.addonLogo, logoDecodeSize) {
+        stream.addonLogo?.let { logo ->
+            ImageRequest.Builder(context)
+                .data(logo)
+                .size(width = logoDecodeSize, height = logoDecodeSize)
+                .memoryCacheKey("${logo}_${logoDecodeSize}x${logoDecodeSize}")
+                .crossfade(false)
+                .build()
+        }
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                onFocusChanged?.invoke(it.isFocused)
+            }
+            .then(if (onUpKey != null) Modifier.onKeyEvent { event ->
+                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN && event.key == Key.DirectionUp) {
+                    onUpKey(); true
+                } else false
+            } else Modifier),
+        colors = CardDefaults.colors(
+            containerColor = PlayTorrioTheme.colors.BackgroundElevated,
+            focusedContainerColor = PlayTorrioTheme.colors.BackgroundElevated
+        ),
+        shape = CardDefaults.shape(shape = RoundedCornerShape(PlayTorrioTheme.radii.md)),
+        scale = CardDefaults.scale(focusedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(PlayTorrioTheme.spacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xs)
+            ) {
+                if (hasBadges && badgePlacement == StreamBadgePlacement.TOP) {
+                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null)) {
+                        StreamBadgeChips(
+                            badges = stream.badges,
+                            fileSizeBytes = stream.behaviorHints?.videoSize,
+                            showFileSizeBadge = showFileSizeBadges,
+                            animate = shouldAnimateBadges,
+                            focused = isFocused
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
+                    Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xxs))
+                }
+
+                Text(
+                    text = streamName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PlayTorrioTheme.colors.TextPrimary
+                )
+
+                streamDescription?.let { description ->
+                    if (description.isNotBlank() && description != streamName) {
+                        Text(
+                            text = description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PlayTorrioTheme.extendedColors.textSecondary
+                        )
+                    }
+                }
+
+                if (hasBadges && badgePlacement == StreamBadgePlacement.BOTTOM) {
+                    if (stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null)) {
+                        StreamBadgeChips(
+                            badges = stream.badges,
+                            fileSizeBytes = stream.behaviorHints?.videoSize,
+                            showFileSizeBadge = showFileSizeBadges,
+                            animate = shouldAnimateBadges,
+                            focused = isFocused,
+                            modifier = Modifier.padding(top = PlayTorrioTheme.spacing.xxs)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(22.dp))
+                    }
+                }
+            }
+
+            if (showAddonLogo) {
+                Column(
+                    horizontalAlignment = Alignment.End
+                ) {
+                    if (addonLogoModel != null) {
+                        AsyncImage(
+                            model = addonLogoModel,
+                            contentDescription = stream.addonName,
+                            modifier = Modifier
+                                .size(PlayTorrioTheme.spacing.xxl)
+                                .clip(RoundedCornerShape(PlayTorrioTheme.radii.xs)),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xs))
+
+                    Text(
+                        text = stream.addonName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = PlayTorrioTheme.extendedColors.textTertiary,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PlayerChoiceDialog(
+    onInternalSelected: () -> Unit,
+    onExternalSelected: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(PlayTorrioTheme.radii.xl))
+                .background(PlayTorrioTheme.colors.BackgroundCard)
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(400.dp)
+                    .padding(PlayTorrioTheme.spacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = stringResource(R.string.stream_player_picker_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = PlayTorrioTheme.colors.TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    var internalFocused by remember { mutableStateOf(false) }
+                    Card(
+                        onClick = onInternalSelected,
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { internalFocused = it.isFocused },
+                        colors = CardDefaults.colors(
+                            containerColor = PlayTorrioTheme.colors.BackgroundElevated,
+                            focusedContainerColor = PlayTorrioTheme.colors.Secondary
+                        ),
+                        border = CardDefaults.border(
+                            focusedBorder = Border(
+                                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                                shape = RoundedCornerShape(PlayTorrioTheme.radii.md)
+                            )
+                        ),
+                        shape = CardDefaults.shape(shape = RoundedCornerShape(PlayTorrioTheme.radii.md)),
+                        scale = CardDefaults.scale(focusedScale = 1.05f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.stream_player_internal),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (internalFocused) PlayTorrioTheme.colors.OnSecondary else PlayTorrioTheme.colors.TextPrimary,
+                            modifier = Modifier
+                                .padding(horizontal = PlayTorrioTheme.spacing.lg, vertical = 14.dp)
+                                .fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    var externalFocused by remember { mutableStateOf(false) }
+                    Card(
+                        onClick = onExternalSelected,
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { externalFocused = it.isFocused },
+                        colors = CardDefaults.colors(
+                            containerColor = PlayTorrioTheme.colors.BackgroundElevated,
+                            focusedContainerColor = PlayTorrioTheme.colors.Secondary
+                        ),
+                        border = CardDefaults.border(
+                            focusedBorder = Border(
+                                border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                                shape = RoundedCornerShape(PlayTorrioTheme.radii.md)
+                            )
+                        ),
+                        shape = CardDefaults.shape(shape = RoundedCornerShape(PlayTorrioTheme.radii.md)),
+                        scale = CardDefaults.scale(focusedScale = 1.05f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.stream_player_external),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (externalFocused) PlayTorrioTheme.colors.OnSecondary else PlayTorrioTheme.colors.TextPrimary,
+                            modifier = Modifier
+                                .padding(horizontal = PlayTorrioTheme.spacing.lg, vertical = 14.dp)
+                                .fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

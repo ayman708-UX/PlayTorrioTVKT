@@ -1,0 +1,2134 @@
+package com.playtorrio.tv
+
+import android.content.Context
+import android.content.Intent
+import android.content.res.Configuration
+import android.os.Bundle
+import android.util.Log
+import android.view.KeyEvent
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import com.playtorrio.tv.core.runtime.PluginRuntimeHooks
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.os.ConfigurationCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.lifecycleScope
+import androidx.metrics.performance.JankStats
+import androidx.metrics.performance.PerformanceMetricsState
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.DrawerValue
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.ModalNavigationDrawer
+import androidx.tv.material3.Surface
+import androidx.tv.material3.SurfaceDefaults
+import androidx.tv.material3.Text
+import androidx.tv.material3.rememberDrawerState
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import com.playtorrio.tv.R
+import com.playtorrio.tv.core.auth.AuthManager
+import com.playtorrio.tv.core.auth.DeviceSessionRegistration
+import com.playtorrio.tv.core.deeplink.DeepLinkHandler
+import com.playtorrio.tv.core.deeplink.DeepLinkParser
+import com.playtorrio.tv.core.profile.ProfileManager
+import com.playtorrio.tv.core.sync.ProfileSyncService
+import com.playtorrio.tv.core.sync.StartupSyncService
+import com.playtorrio.tv.core.tracking.TrackingProgressRefreshCoordinator
+import com.playtorrio.tv.core.tracking.TrackingRefreshIntent
+import com.playtorrio.tv.data.local.AppOnboardingDataStore
+import com.playtorrio.tv.data.local.AuthSessionNoticeDataStore
+import com.playtorrio.tv.data.local.ExperienceModeDataStore
+import com.playtorrio.tv.data.local.LayoutPreferenceDataStore
+import com.playtorrio.tv.data.local.StartupAuthNotice
+import com.playtorrio.tv.data.local.ThemeDataStore
+import com.playtorrio.tv.data.repository.MemberAccessRepository
+import com.playtorrio.tv.data.remote.supabase.AvatarRepository
+import com.playtorrio.tv.domain.model.AppFont
+import com.playtorrio.tv.domain.model.AppTheme
+import com.playtorrio.tv.domain.model.AuthState
+import com.playtorrio.tv.domain.model.CardDepthStyle
+import com.playtorrio.tv.domain.model.CosmeticEntitlement
+import com.playtorrio.tv.domain.model.DiscoverLocation
+import com.playtorrio.tv.domain.model.ExperienceMode
+import com.playtorrio.tv.domain.model.MemberAccess
+import com.playtorrio.tv.domain.model.SettingsUiStyle
+import com.playtorrio.tv.domain.model.resolveAppTheme
+import com.playtorrio.tv.domain.deeplink.AppDeepLink
+import com.playtorrio.tv.domain.repository.AddonRepository
+import com.playtorrio.tv.ui.components.PlayTorrioScrollDefaults
+import com.playtorrio.tv.ui.components.BrandWordmark
+import com.playtorrio.tv.ui.components.LocalCardDepthStyle
+import com.playtorrio.tv.ui.components.ProfileAvatarCircle
+import com.playtorrio.tv.ui.navigation.PlayTorrioNavHost
+import com.playtorrio.tv.ui.navigation.Screen
+import com.playtorrio.tv.ui.membership.LocalMemberAccess
+import com.playtorrio.tv.ui.screens.account.AuthQrSignInScreen
+import com.playtorrio.tv.ui.screens.addon.EssentialAddonSetupScreen
+import com.playtorrio.tv.ui.screens.profile.ProfileSelectionScreen
+import com.playtorrio.tv.ui.theme.PlayTorrioComponents
+import com.playtorrio.tv.ui.theme.PlayTorrioLayout
+import com.playtorrio.tv.ui.theme.PlayTorrioMotion
+import com.playtorrio.tv.ui.theme.PlayTorrioPrimitives
+import com.playtorrio.tv.ui.theme.PlayTorrioRadii
+import com.playtorrio.tv.ui.theme.PlayTorrioStrokes
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+import com.playtorrio.tv.ui.theme.ThemeColors
+import com.playtorrio.tv.ui.theme.accentBrush
+import com.playtorrio.tv.ui.util.LocalFastHorizontalNavigationEnabled
+import com.playtorrio.tv.ui.util.LocalRecompositionHighlighterEnabled
+import com.playtorrio.tv.ui.util.rememberDrawerItemFocusRequesters
+import com.playtorrio.tv.updater.UpdateViewModel
+import com.playtorrio.tv.updater.ui.UpdateBannerHost
+import dagger.hilt.android.AndroidEntryPoint
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import java.util.Locale
+import javax.inject.Inject
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+
+val LocalSidebarExpanded = compositionLocalOf { false }
+val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
+
+private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 4_000L
+
+private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
+
+data class DrawerItem(
+    val route: String,
+    val label: String,
+    val iconRes: Int? = null,
+    val icon: ImageVector? = null
+)
+
+private data class MainUiPrefs(
+    val theme: AppTheme = AppTheme.WHITE,
+    val memberAccess: MemberAccess = MemberAccess.None,
+    val font: AppFont = AppFont.INTER,
+    val amoledMode: Boolean = false,
+    val amoledSurfacesMode: Boolean = false,
+    val hasChosenLayout: Boolean? = null,
+    val experienceMode: ExperienceMode? = null,
+    val experienceModeLoaded: Boolean = false,
+    val addonSetupSkipped: Boolean = false,
+    val sidebarCollapsed: Boolean = false,
+    val modernSidebarEnabled: Boolean = false,
+    val modernSidebarBlurPref: Boolean = false,
+    val discoverLocation: DiscoverLocation? = null,
+    val smoothBringIntoViewEnabled: Boolean = true,
+    val fastHorizontalNavigationEnabled: Boolean = false,
+    val composeHighlighterEnabled: Boolean = false,
+    val settingsUiStyle: SettingsUiStyle = SettingsUiStyle.CLASSIC,
+    val cardDepthStyle: CardDepthStyle = CardDepthStyle()
+)
+
+@AndroidEntryPoint
+open class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var themeDataStore: ThemeDataStore
+
+    @Inject
+    lateinit var layoutPreferenceDataStore: LayoutPreferenceDataStore
+
+    @Inject
+    lateinit var experienceModeDataStore: ExperienceModeDataStore
+
+    @Inject
+    lateinit var memberAccessRepository: MemberAccessRepository
+
+    @Inject
+    lateinit var addonRepository: AddonRepository
+
+    @Inject
+    lateinit var trackingProgressRefreshCoordinator: TrackingProgressRefreshCoordinator
+
+    @Inject
+    lateinit var startupSyncService: StartupSyncService
+
+    @Inject
+    lateinit var androidTvChannelSyncService: com.playtorrio.tv.core.sync.androidtv.AndroidTvChannelSyncService
+
+    @Inject
+    lateinit var profileSyncService: ProfileSyncService
+
+    @Inject
+    lateinit var profileManager: ProfileManager
+
+    @Inject
+    lateinit var authManager: AuthManager
+
+    @Inject
+    lateinit var deviceSessionRegistration: DeviceSessionRegistration
+
+    @Inject
+    lateinit var authSessionNoticeDataStore: AuthSessionNoticeDataStore
+
+    @Inject
+    lateinit var appOnboardingDataStore: AppOnboardingDataStore
+
+    @Inject
+    lateinit var avatarRepository: AvatarRepository
+
+    @Inject
+    lateinit var trailerPlayerPool: com.playtorrio.tv.core.player.TrailerPlayerPool
+
+    @Inject
+    lateinit var externalPlaybackTracker: com.playtorrio.tv.core.player.ExternalPlaybackTracker
+
+    @Inject
+    lateinit var deepLinkHandler: DeepLinkHandler
+
+    private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
+    private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
+
+    private lateinit var jankStats: JankStats
+
+    /** Activity-level launcher for external video players. Survives all navigation changes. */
+    private val externalPlayerLauncher = registerForActivityResult(
+        com.playtorrio.tv.core.player.ExternalPlayerResultContract()
+    ) { result ->
+        Log.d("MainActivity", "External player ActivityResult: $result")
+        externalPlaybackTracker.onActivityResult(result)
+    }
+
+    /** True until the first onResume after onCreate completes. */
+    private var isFirstResumeAfterCreate = false
+
+    @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+    override fun attachBaseContext(newBase: Context) {
+        val tag = LocaleCache.localeTag.takeIf { it != LocaleCache.UNSET }
+
+        if (!tag.isNullOrEmpty()) {
+            val locale = Locale.forLanguageTag(tag)
+            Locale.setDefault(locale)
+            val config = Configuration(newBase.resources.configuration)
+            config.setLocale(locale)
+            super.attachBaseContext(newBase.createConfigurationContext(config))
+        } else {
+            // Cache not ready yet (very early cold start) — use system locale
+            // The IO coroutine in Application.onCreate will finish before any activity
+            // is usually created, but if not, we just use system locale until next launch
+            super.attachBaseContext(newBase)
+        }
+    }
+
+    @OptIn(ExperimentalFoundationApi::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
+        super.onCreate(savedInstanceState)
+        isFirstResumeAfterCreate = true
+        window?.setBackgroundDrawable(null)
+
+        // Wire the Activity-level launcher to the tracker
+        externalPlaybackTracker.activityLauncher = externalPlayerLauncher
+
+        PluginRuntimeHooks.onActivityCreate(this)
+
+        window?.decorView?.post {
+            val snapshot = com.playtorrio.tv.core.player.DisplayCapabilities.detect(this)
+            com.playtorrio.tv.core.player.DisplayCapabilities.logSummary(snapshot)
+        }
+
+        // Extract extras set by the Continue Watching launcher channel preview programs.
+        val launchContentId = intent?.getStringExtra("contentId")
+        val launchContentType = intent?.getStringExtra("contentType")
+        val launchMode = intent?.getStringExtra("launchMode")
+        val launchVideoId = intent?.getStringExtra("videoId")
+        val launchName = intent?.getStringExtra("name")
+        val launchPoster = intent?.getStringExtra("poster")
+        val launchBackdrop = intent?.getStringExtra("backdrop")
+        val launchLogo = intent?.getStringExtra("logo")
+        val launchSeason = intent?.getIntExtra("season", -1)?.takeIf { it >= 0 }
+        val launchEpisode = intent?.getIntExtra("episode", -1)?.takeIf { it >= 0 }
+        val launchEpisodeTitle = intent?.getStringExtra("episodeTitle")
+        captureDeepLinkIntent(intent)
+
+        setContent {
+            var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
+            var onboardingCompletedThisSession by remember { mutableStateOf(false) }
+            var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
+            val hasSeenAuthQrFlow = remember(appOnboardingDataStore) {
+                appOnboardingDataStore.hasSeenAuthQrOnFirstLaunch.map<Boolean, Boolean?> { it }
+            }
+            val hasSeenAuthQrOnFirstLaunch by hasSeenAuthQrFlow.collectAsState(initial = null)
+            val authState by authManager.authState.collectAsState()
+            val context = LocalContext.current
+
+            LaunchedEffect(authSessionNoticeDataStore, context) {
+                authSessionNoticeDataStore.pendingNotice.collect { notice ->
+                    if (notice == StartupAuthNotice.PLAYTORRIO) {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.auth_notice_playtorrio_logged_out),
+                            Toast.LENGTH_LONG
+                        ).show()
+                        authSessionNoticeDataStore.consumeNotice(notice)
+                    }
+                }
+            }
+
+            LaunchedEffect(hasSeenAuthQrOnFirstLaunch, authState) {
+                if (hasSeenAuthQrOnFirstLaunch == false && authState is AuthState.FullAccount) {
+                    appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
+                    onboardingCompletedThisSession = true
+                }
+            }
+
+            val activeProfileId by profileManager.activeProfileId.collectAsState()
+            val profiles by profileManager.profiles.collectAsState()
+            val hasEverSelectedProfile by profileManager.hasEverSelectedProfile.collectAsState()
+            val rememberLastProfileEnabled by profileManager.rememberLastProfileEnabled.collectAsState()
+            val activeProfile = remember(activeProfileId, profiles) {
+                profiles.firstOrNull { it.id == activeProfileId }
+            }
+            var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+
+            LaunchedEffect(authState, profiles) {
+                if (authState is AuthState.FullAccount) {
+                    profileSyncService.pullProfileLockStates()
+                        .onSuccess { profilePinStates = it }
+                        .onFailure { profilePinStates = emptyMap() }
+                } else {
+                    profilePinStates = emptyMap()
+                }
+            }
+
+            val activeProfileHasPin = remember(activeProfileId, profilePinStates) {
+                profilePinStates[activeProfileId] == true
+            }
+
+            LaunchedEffect(hasEverSelectedProfile, activeProfileHasPin, rememberLastProfileEnabled) {
+                if (rememberLastProfileEnabled && hasEverSelectedProfile && !activeProfileHasPin && !hasSelectedProfileThisSession) {
+                    hasSelectedProfileThisSession = true
+                    if (authManager.authState.value is AuthState.FullAccount) {
+                        startupSyncService.requestSyncNow()
+                    }
+                }
+            }
+
+            var avatarCatalog by remember { mutableStateOf(emptyList<com.playtorrio.tv.data.remote.supabase.AvatarCatalogItem>()) }
+            val avatarMemberAccess by memberAccessRepository.access.collectAsState()
+            val hasProfileAvatarAccess = avatarMemberAccess.entitlements
+                .includes(CosmeticEntitlement.PROFILE_AVATARS)
+
+            LaunchedEffect(hasProfileAvatarAccess) {
+                avatarCatalog = runCatching {
+                    avatarRepository.getAvatarCatalog(hasProfileAvatarAccess)
+                }
+                    .getOrDefault(emptyList())
+            }
+
+            val activeProfileAvatarImageUrl = remember(activeProfile, avatarCatalog) {
+                activeProfile?.avatarUrl?.takeIf { it.isNotBlank() }
+                    ?: activeProfile?.avatarId?.let { avatarRepository.getAvatarImageUrl(it, avatarCatalog) }
+            }
+
+            val mainUiPrefsFlow = remember(
+                themeDataStore,
+                layoutPreferenceDataStore,
+                experienceModeDataStore,
+                memberAccessRepository
+            ) {
+                val activeThemeFlow = combine(
+                    themeDataStore.selectedThemePreference,
+                    memberAccessRepository.access
+                ) { selectedTheme, memberAccess ->
+                    resolveAppTheme(selectedTheme, memberAccess.entitlements) to memberAccess
+                }
+                // Group flows into two batches to reduce intermediate flow allocations.
+                // Each batch uses a single combine() instead of chaining .combine() calls,
+                // which avoids N intermediate flow objects and redundant emissions on startup.
+                val themeAndExperienceFlow = combine(
+                    activeThemeFlow,
+                    themeDataStore.selectedFont,
+                    themeDataStore.amoledMode,
+                    themeDataStore.amoledSurfacesMode,
+                    experienceModeDataStore.mode,
+                ) { themeAndAccess, font, amoledMode, amoledSurfacesMode, experienceMode ->
+                    MainUiPrefs(
+                        theme = themeAndAccess.first,
+                        memberAccess = themeAndAccess.second,
+                        font = font,
+                        amoledMode = amoledMode,
+                        amoledSurfacesMode = amoledSurfacesMode,
+                        experienceMode = experienceMode,
+                        experienceModeLoaded = true,
+                    )
+                }
+                val layoutAndFeaturesFlow = combine(
+                    layoutPreferenceDataStore.hasChosenLayout,
+                    layoutPreferenceDataStore.sidebarCollapsedByDefault,
+                    layoutPreferenceDataStore.modernSidebarEnabled,
+                    layoutPreferenceDataStore.modernSidebarBlurEnabled,
+                    layoutPreferenceDataStore.discoverLocation,
+                ) { hasChosenLayout, sidebarCollapsed, modernSidebarEnabled, modernSidebarBlurPref, discoverLocation ->
+                    MainUiPrefs(
+                        hasChosenLayout = hasChosenLayout,
+                        sidebarCollapsed = sidebarCollapsed,
+                        modernSidebarEnabled = modernSidebarEnabled,
+                        modernSidebarBlurPref = modernSidebarBlurPref,
+                        discoverLocation = discoverLocation,
+                    )
+                }
+                val extraFeaturesFlow = combine(
+                    experienceModeDataStore.addonSetupSkipped,
+                    layoutPreferenceDataStore.smoothBringIntoViewEnabled,
+                    layoutPreferenceDataStore.fastHorizontalNavigationEnabled,
+                    layoutPreferenceDataStore.composeHighlighterEnabled,
+                    themeDataStore.settingsUiStyle,
+                ) { addonSetupSkipped, smoothBringIntoView, fastHorizontalNav, composeHighlighter, settingsUiStyle ->
+                    MainUiPrefs(
+                        addonSetupSkipped = addonSetupSkipped,
+                        smoothBringIntoViewEnabled = smoothBringIntoView,
+                        fastHorizontalNavigationEnabled = fastHorizontalNav,
+                        composeHighlighterEnabled = composeHighlighter,
+                        settingsUiStyle = settingsUiStyle,
+                    )
+                }
+                combine(
+                    themeAndExperienceFlow,
+                    layoutAndFeaturesFlow,
+                    extraFeaturesFlow,
+                    layoutPreferenceDataStore.cardDepthStyle
+                ) { themePrefs, layoutPrefs, extraPrefs, cardDepthStyle ->
+                    themePrefs.copy(
+                        hasChosenLayout = layoutPrefs.hasChosenLayout,
+                        sidebarCollapsed = layoutPrefs.sidebarCollapsed,
+                        modernSidebarEnabled = layoutPrefs.modernSidebarEnabled,
+                        modernSidebarBlurPref = layoutPrefs.modernSidebarBlurPref,
+                        discoverLocation = layoutPrefs.discoverLocation,
+                        addonSetupSkipped = extraPrefs.addonSetupSkipped,
+                        smoothBringIntoViewEnabled = extraPrefs.smoothBringIntoViewEnabled,
+                        fastHorizontalNavigationEnabled = extraPrefs.fastHorizontalNavigationEnabled,
+                        composeHighlighterEnabled = extraPrefs.composeHighlighterEnabled,
+                        settingsUiStyle = extraPrefs.settingsUiStyle,
+                        cardDepthStyle = cardDepthStyle
+                    )
+                }
+            }
+            val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
+            val installedAddons by remember(addonRepository) {
+                addonRepository.getInstalledAddons()
+            }.collectAsState(initial = null)
+            val discoverLocation = mainUiPrefs.discoverLocation
+
+            PlayTorrioTheme(
+                appTheme = mainUiPrefs.theme,
+                appFont = mainUiPrefs.font,
+                amoledMode = mainUiPrefs.amoledMode,
+                amoledSurfacesMode = mainUiPrefs.amoledSurfacesMode,
+                settingsUiStyle = mainUiPrefs.settingsUiStyle
+            ) {
+                val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+                val bringIntoViewSpec = if (mainUiPrefs.smoothBringIntoViewEnabled) {
+                    PlayTorrioScrollDefaults.smoothScrollSpec
+                } else {
+                    defaultBringIntoViewSpec
+                }
+                val systemDensity = LocalDensity.current
+                val clampedFontScaleDensity = remember(systemDensity) {
+                    Density(
+                        density = systemDensity.density,
+                        fontScale = systemDensity.fontScale.coerceAtMost(MAX_SUPPORTED_FONT_SCALE)
+                    )
+                }
+                CompositionLocalProvider(
+                    LocalDensity provides clampedFontScaleDensity,
+                    LocalBringIntoViewSpec provides bringIntoViewSpec,
+                    LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
+                    LocalRecompositionHighlighterEnabled provides (BuildConfig.IS_DEBUG_BUILD && mainUiPrefs.composeHighlighterEnabled),
+                    LocalCardDepthStyle provides mainUiPrefs.cardDepthStyle,
+                    LocalMemberAccess provides mainUiPrefs.memberAccess,
+                    com.playtorrio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool
+                ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RectangleShape,
+                    colors = SurfaceDefaults.colors(
+                        containerColor = PlayTorrioTheme.colors.Background
+                    )
+                ) {
+                    val sidebarCollapsed = mainUiPrefs.sidebarCollapsed
+                    val modernSidebarEnabled = mainUiPrefs.modernSidebarEnabled
+                    val modernSidebarBlurEnabled =
+                        mainUiPrefs.modernSidebarBlurPref && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+                    val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
+                    val layoutChosen = true
+                    val pendingDeepLink by pendingDeepLinkUrl.collectAsState()
+
+                    val startDestination = Screen.Home.route
+                    val navController = rememberNavController()
+                    var optimisticRoute by remember { mutableStateOf<String?>(null) }
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val actualRoute = navBackStackEntry?.destination?.route
+                    val currentRoute = optimisticRoute ?: actualRoute
+
+                    LaunchedEffect(actualRoute) {
+                        optimisticRoute = null
+                    }
+
+                    // Auto-play next episode for EXTERNAL players: the tracker resolves the
+                    // next episode and we navigate into the same Screen.Stream auto-play route
+                    // the internal onPlaybackEnded path uses. Collected from the root composable
+                    // so it survives StreamScreen's self-pop and a process kill (metadata is
+                    // recovered from disk and the event replayed).
+                    LaunchedEffect(navController) {
+                        externalPlaybackTracker.autoPlayNext.collect { next ->
+                            if (!externalPlaybackTracker.claimAutoPlayNextNavigation(next)) {
+                                return@collect
+                            }
+                            Log.d(
+                                "MainActivity",
+                                "autoPlayNext received: S${next.nextSeason}E${next.nextEpisode} " +
+                                    "videoId=${next.nextVideoId}; navigating to Stream"
+                            )
+                            navController.navigate(
+                                Screen.Stream.createRoute(
+                                    videoId = next.nextVideoId,
+                                    contentType = next.contentType,
+                                    title = next.contentName,
+                                    poster = next.poster,
+                                    backdrop = next.backdrop,
+                                    logo = next.logo,
+                                    season = next.nextSeason,
+                                    episode = next.nextEpisode,
+                                    year = next.year,
+                                    contentId = next.contentId,
+                                    contentName = next.contentName,
+                                    returnToDetailOnBack = next.contentType.equals("series", ignoreCase = true)
+                                )
+                            ) {
+                                // Replace any lingering Stream screen (e.g. the previous
+                                // episode's, restored from the backstack after a process restart).
+                                popUpTo(Screen.Stream.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
+                    // Navigate to content when launched from the Continue Watching channel row.
+                    LaunchedEffect(navController) {
+                        if (launchContentId != null && launchContentType != null && layoutChosen) {
+                            if (launchMode == "stream" && launchVideoId != null && launchName != null) {
+                                navController.navigate(
+                                    Screen.Stream.createRoute(
+                                        videoId = launchVideoId,
+                                        contentType = launchContentType,
+                                        title = launchName,
+                                        poster = launchPoster,
+                                        backdrop = launchBackdrop,
+                                        logo = launchLogo,
+                                        season = launchSeason,
+                                        episode = launchEpisode,
+                                        episodeName = launchEpisodeTitle,
+                                        contentId = launchContentId,
+                                        contentName = launchName,
+                                        returnToDetailOnBack = launchContentType.equals("series", ignoreCase = true),
+                                        returnToHomeOnBack = true
+                                    )
+                                )
+                            } else {
+                                navController.navigate(
+                                    Screen.Detail.createRoute(
+                                        itemId = launchContentId,
+                                        itemType = launchContentType
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    val pendingLaunch by pendingLaunchIntent.collectAsState()
+                    LaunchedEffect(navController, layoutChosen, pendingLaunch) {
+                        val intent = pendingLaunch ?: return@LaunchedEffect
+                        if (!layoutChosen) return@LaunchedEffect
+                        pendingLaunchIntent.value = null
+                        val contentId = intent.getStringExtra("contentId") ?: return@LaunchedEffect
+                        val contentType = intent.getStringExtra("contentType") ?: return@LaunchedEffect
+                        val videoId = intent.getStringExtra("videoId")
+                        val name = intent.getStringExtra("name")
+                        if (videoId != null && name != null) {
+                            navController.navigate(
+                                Screen.Stream.createRoute(
+                                    videoId = videoId,
+                                    contentType = contentType,
+                                    title = name,
+                                    poster = intent.getStringExtra("poster"),
+                                    backdrop = intent.getStringExtra("backdrop"),
+                                    logo = intent.getStringExtra("logo"),
+                                    season = intent.getIntExtra("season", -1).takeIf { it >= 0 },
+                                    episode = intent.getIntExtra("episode", -1).takeIf { it >= 0 },
+                                    episodeName = intent.getStringExtra("episodeTitle"),
+                                    contentId = contentId,
+                                    contentName = name,
+                                    returnToDetailOnBack = contentType.equals("series", ignoreCase = true),
+                                    returnToHomeOnBack = true
+                                )
+                            )
+                        } else {
+                            navController.navigate(
+                                Screen.Detail.createRoute(
+                                    itemId = contentId,
+                                    itemType = contentType
+                                )
+                            )
+                        }
+                    }
+
+                    LaunchedEffect(navController, layoutChosen, pendingDeepLink) {
+                        val url = pendingDeepLink ?: return@LaunchedEffect
+                        if (!layoutChosen) return@LaunchedEffect
+                        when (val deepLink = DeepLinkParser.parse(url)) {
+                            is AppDeepLink.Meta -> {
+                                pendingDeepLinkUrl.value = null
+                                navController.navigate(
+                                    Screen.Detail.createRoute(
+                                        itemId = deepLink.id,
+                                        itemType = deepLink.type
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            }
+                            is AppDeepLink.AddonInstall -> {
+                                navController.navigate(Screen.AddonManager.route) {
+                                    launchSingleTop = true
+                                }
+                                Toast.makeText(context, context.getString(R.string.addon_installing), Toast.LENGTH_SHORT).show()
+                                val installResult = deepLinkHandler.installAddon(deepLink.manifestUrl)
+                                if (pendingDeepLinkUrl.value == url) {
+                                    pendingDeepLinkUrl.value = null
+                                }
+                                Toast.makeText(context, installResult.message, Toast.LENGTH_LONG).show()
+                            }
+                            null -> {
+                                pendingDeepLinkUrl.value = null
+                            }
+                        }
+                    }
+
+                    val view = LocalView.current
+                    LaunchedEffect(currentRoute) {
+                        val holder = PerformanceMetricsState.getHolderForHierarchy(view)
+                        if (currentRoute != null) {
+                            holder.state?.putState("Screen", currentRoute)
+                        }
+                    }
+
+                    LaunchedEffect(discoverLocation, currentRoute) {
+                        if (discoverLocation == null) return@LaunchedEffect
+                        val onDiscoverRoute = currentRoute == Screen.Discover.route ||
+                            currentRoute?.startsWith("${Screen.Discover.route}/") == true
+                        if (discoverLocation == DiscoverLocation.OFF && onDiscoverRoute) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
+                    val rootRoutes = remember(discoverLocation) {
+                        buildSet {
+                            add(Screen.Home.route)
+                            add(Screen.Library.route)
+                            add(Screen.Iptv.route)
+                            add(Screen.Anime.route)
+                            add(Screen.Music.route)
+                            add(Screen.Audiobooks.route)
+                            add(Screen.Search.route)
+                            add(Screen.Settings.route)
+                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                                add(Screen.Discover.route)
+                            }
+                        }
+                    }
+
+                    val strNavHome = stringResource(R.string.nav_home)
+                    val strNavLibrary = stringResource(R.string.nav_library)
+                    val strNavIptv = stringResource(R.string.nav_iptv)
+                    val strNavAnime = stringResource(R.string.nav_anime)
+                    val strNavMusic = stringResource(R.string.nav_music)
+                    val strNavAudiobooks = stringResource(R.string.nav_audiobooks)
+                    val strNavDiscover = stringResource(R.string.nav_discover)
+                    val strNavSearch = stringResource(R.string.nav_search)
+                    val strNavSettings = stringResource(R.string.nav_settings)
+                    val drawerItems = remember(
+                        strNavHome,
+                        strNavLibrary,
+                        strNavIptv,
+                        strNavAnime,
+                        strNavMusic,
+                        strNavAudiobooks,
+                        strNavDiscover,
+                        strNavSearch,
+                        strNavSettings,
+                        discoverLocation
+                    ) {
+                        buildList {
+                            add(
+                                DrawerItem(
+                                    route = Screen.Home.route,
+                                    label = strNavHome,
+                                    icon = Icons.Default.Home
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Library.route,
+                                    label = strNavLibrary,
+                                    iconRes = R.raw.sidebar_library
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Iptv.route,
+                                    label = strNavIptv,
+                                    icon = Icons.Default.LiveTv
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Anime.route,
+                                    label = strNavAnime,
+                                    icon = Icons.Default.Animation
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Music.route,
+                                    label = strNavMusic,
+                                    icon = Icons.Default.MusicNote
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Audiobooks.route,
+                                    label = strNavAudiobooks,
+                                    icon = Icons.Default.AutoStories
+                                )
+                            )
+                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Discover.route,
+                                        label = strNavDiscover,
+                                        icon = Icons.Default.Explore
+                                    )
+                                )
+                            }
+                            add(
+                                DrawerItem(
+                                    route = Screen.Search.route,
+                                    label = strNavSearch,
+                                    iconRes = R.raw.sidebar_search
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Settings.route,
+                                    label = strNavSettings,
+                                    iconRes = R.raw.sidebar_settings
+                                )
+                            )
+                        }
+                    }
+                    val selectedDrawerRoute = drawerItems.firstOrNull { item ->
+                        currentRoute == item.route || currentRoute?.startsWith("${item.route}/") == true
+                    }?.route
+                    val selectedDrawerItem = drawerItems.firstOrNull { it.route == selectedDrawerRoute } ?: drawerItems.first()
+
+                    val confirmExitEnabled by profileManager.confirmExitEnabled.collectAsState()
+                    var backPressedOnce by remember { mutableStateOf(false) }
+                    LaunchedEffect(backPressedOnce) {
+                        if (backPressedOnce) {
+                            delay(2000L)
+                            backPressedOnce = false
+                        }
+                    }
+                    val handleExitApp: () -> Unit = {
+                        if (!confirmExitEnabled || backPressedOnce) {
+                            finishAffinity()
+                            finishAndRemoveTask()
+                            if (confirmExitEnabled) {
+                                // Kill the process to free RAM on low-memory devices.
+                                android.os.Process.killProcess(android.os.Process.myPid())
+                            }
+                        } else {
+                            backPressedOnce = true
+                            Toast.makeText(this@MainActivity, getString(R.string.confirm_exit_toast), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
+                    val updateState by updateViewModel.uiState.collectAsState()
+                    val updateBannerState = updateState.copy(
+                        showBanner = updateState.showBanner && currentRoute?.startsWith("player/") != true
+                    )
+
+                    UpdateBannerHost(
+                        state = updateBannerState,
+                        onDismissBanner = updateViewModel::dismissBanner,
+                        onDownload = updateViewModel::downloadUpdate,
+                        onInstall = updateViewModel::installUpdateOrRequestPermission,
+                        onDismissUnknownSources = updateViewModel::dismissUnknownSourcesDialog,
+                        onOpenUnknownSources = updateViewModel::openUnknownSourcesSettings,
+                        onFeedbackShown = updateViewModel::consumeFeedbackMessage
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (modernSidebarEnabled) {
+                                ModernSidebarScaffold(
+                                    longPressBackHeld = longPressBackHeld,
+                                    navController = navController,
+                                    startDestination = startDestination,
+                                    currentRoute = currentRoute,
+                                    rootRoutes = rootRoutes,
+                                    drawerItems = drawerItems,
+                                    selectedDrawerRoute = selectedDrawerRoute,
+                                    selectedDrawerItem = selectedDrawerItem,
+                                    sidebarCollapsed = sidebarCollapsed,
+                                    modernSidebarBlurEnabled = modernSidebarBlurEnabled,
+                                    hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
+                                    activeProfileName = activeProfile?.name ?: "",
+                                    activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                                    activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                                    showProfileSelector = profiles.size > 1,
+                                    onSwitchProfile = { hasSelectedProfileThisSession = false },
+                                    onNavigate = { optimisticRoute = it },
+                                    onExitApp = handleExitApp
+                                )
+                            } else {
+                                LegacySidebarScaffold(
+                                    longPressBackHeld = longPressBackHeld,
+                                    navController = navController,
+                                    startDestination = startDestination,
+                                    currentRoute = currentRoute,
+                                    rootRoutes = rootRoutes,
+                                    drawerItems = drawerItems,
+                                    selectedDrawerRoute = selectedDrawerRoute,
+                                    sidebarCollapsed = sidebarCollapsed,
+                                    hideBuiltInHeaders = false,
+                                    activeProfileName = activeProfile?.name ?: "",
+                                    activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                                    activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                                    showProfileSelector = profiles.size > 1,
+                                    onSwitchProfile = { hasSelectedProfileThisSession = false },
+                                    onNavigate = { optimisticRoute = it },
+                                    onExitApp = handleExitApp
+                                )
+                            }
+
+                            val autoNextOverlay by externalPlaybackTracker.autoNextOverlay.collectAsState()
+                            autoNextOverlay?.let { ov ->
+                                com.playtorrio.tv.ui.screens.player.LoadingOverlay(
+                                    visible = true,
+                                    backdropUrl = ov.backdrop,
+                                    logoUrl = ov.logo,
+                                    title = ov.title,
+                                    message = ov.message ?: stringResource(R.string.external_auto_next_loading),
+                                    progress = ov.progress,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            }
+        }
+
+        jankStats = JankStats.createAndTrack(window) { frameData ->
+            if (frameData.isJank) {
+                Log.w(
+                    "JankStats",
+                    "JANK: ${frameData.frameDurationUiNanos / 1_000_000}ms | states: ${frameData.states}"
+                )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
+        memberAccessRepository.refreshIfStale()
+        lifecycleScope.launch {
+            deviceSessionRegistration.requestForegroundRegistration()
+            startupSyncService.requestForegroundSync()
+        }
+        lifecycleScope.launch {
+            val refreshIntent = if (isFirstResumeAfterCreate) {
+                isFirstResumeAfterCreate = false
+                TrackingRefreshIntent.INVALIDATED
+            } else {
+                TrackingRefreshIntent.AUTOMATIC
+            }
+            trackingProgressRefreshCoordinator.refreshConnected(refreshIntent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureDeepLinkIntent(intent)
+        captureLaunchIntent(intent)
+    }
+
+    private fun captureDeepLinkIntent(intent: Intent?) {
+        val url = intent?.dataString?.trim()?.takeIf(String::isNotBlank) ?: return
+        pendingDeepLinkUrl.value = url
+    }
+
+    private fun captureLaunchIntent(intent: Intent?) {
+        val contentId = intent?.getStringExtra("contentId") ?: return
+        val launchMode = intent.getStringExtra("launchMode") ?: return
+        if (launchMode != "stream") return
+        pendingLaunchIntent.value = intent
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::jankStats.isInitialized) jankStats.isTrackingEnabled = false
+    }
+
+    // Intercept Back at the Activity level, before any Compose BackHandler, so the auto-next loader
+    // can always be dismissed. Compose back-dispatch ordering kept putting the destination screen's
+    // handler above the loader's, so Back never reached it.
+    // Tracks whether a long-press Back sequence is in progress. When true, all Back
+    // key events are consumed at the Activity level so that repeated DOWN events from a
+    // held Back key don't cascade through Compose BackHandlers (e.g. opening the sidebar
+    // and then immediately exiting the app).
+    val longPressBackHeld = mutableStateOf(false)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (longPressBackHeld.value) {
+                if (event.action == KeyEvent.ACTION_UP) longPressBackHeld.value = false
+                return true
+            }
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_BACK &&
+            externalPlaybackTracker.autoNextOverlay.value != null
+        ) {
+            if (event.action == KeyEvent.ACTION_UP) {
+                Log.d("ExtAutoNext", "dispatchKeyEvent BACK -> dismissAutoNextOverlay (loader showing)")
+                externalPlaybackTracker.dismissAutoNextOverlay()
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onStart() {
+        // Returning from an external player: raise the auto-next loader before the player's
+        // result is dispatched and before the window repaints, so the transition shows the
+        // loader instantly with no episode-list flash. No-op unless a series episode is being
+        // tracked; onActivityResult keeps it for a completion or dismisses it otherwise.
+        externalPlaybackTracker.raiseAutoNextOverlayOnReturn()
+        super.onStart()
+        startupSyncService.startPeriodicSurfacePulls()
+        androidTvChannelSyncService.onForegroundChanged(true)
+    }
+
+    override fun onStop() {
+        externalPlaybackTracker.onExternalPlayerCoveredApp()
+        super.onStop()
+        startupSyncService.stopPeriodicSurfacePulls()
+        // App going to background (e.g. user returning to the launcher): reconcile the
+        // Continue Watching channel once so Projectivy repaints it with fresh progress.
+        androidTvChannelSyncService.onForegroundChanged(false)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        PluginRuntimeHooks.onActivityDestroy()
+    }
+}
+
+@Composable
+private fun SidebarFocusRecoveryEffect(
+    drawerItems: List<DrawerItem>,
+    selectedDrawerRoute: String?,
+    drawerItemFocusRequesters: Map<String, FocusRequester>,
+    sidebarOwnsFocus: Boolean
+) {
+    LaunchedEffect(drawerItems, sidebarOwnsFocus, selectedDrawerRoute) {
+        if (!sidebarOwnsFocus) {
+            return@LaunchedEffect
+        }
+        if (selectedDrawerRoute != null && drawerItems.any { it.route == selectedDrawerRoute }) {
+            return@LaunchedEffect
+        }
+        val fallbackRoute = drawerItems.firstOrNull()?.route ?: return@LaunchedEffect
+        val requester = drawerItemFocusRequesters[fallbackRoute] ?: return@LaunchedEffect
+        repeat(2) { withFrameNanos { } }
+        runCatching { requester.requestFocus() }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LegacySidebarScaffold(
+    longPressBackHeld: MutableState<Boolean>,
+    navController: NavHostController,
+    startDestination: String,
+    currentRoute: String?,
+    rootRoutes: Set<String>,
+    drawerItems: List<DrawerItem>,
+    selectedDrawerRoute: String?,
+    sidebarCollapsed: Boolean,
+    hideBuiltInHeaders: Boolean,
+    activeProfileName: String,
+    activeProfileColorHex: String,
+    activeProfileAvatarImageUrl: String?,
+    showProfileSelector: Boolean,
+    onSwitchProfile: () -> Unit,
+    onNavigate: (String) -> Unit,
+    onExitApp: () -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val showSidebar = currentRoute in rootRoutes
+
+    LaunchedEffect(currentRoute) {
+        longPressBackHeld.value = false
+        drawerState.setValue(DrawerValue.Closed)
+    }
+
+    val sidebarTokens = PlayTorrioComponents.tokens.sidebar
+    val closedDrawerWidth = if (sidebarCollapsed) PlayTorrioTheme.spacing.none else sidebarTokens.legacyCollapsedWidth
+    val openDrawerWidth = sidebarTokens.legacyExpandedWidth
+    val openDrawerItemWidth = sidebarTokens.itemWidth
+
+    val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val contentFocusRequester = remember { FocusRequester() }
+    var pendingContentFocusTransfer by remember { mutableStateOf(false) }
+    var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
+    // Bumped on every key event the drawer sees so the auto-collapse timer
+    // resets while the user navigates between drawer items.
+    var legacyDrawerInteractionVersion by remember { mutableStateOf(0) }
+
+
+    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
+        pendingSidebarFocusRequest = true
+        drawerState.setValue(DrawerValue.Open)
+    }
+
+    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Open) {
+        if (longPressBackHeld.value) return@BackHandler
+        onExitApp()
+    }
+
+    LaunchedEffect(drawerState.currentValue, pendingContentFocusTransfer) {
+        if (!pendingContentFocusTransfer || drawerState.currentValue != DrawerValue.Closed) {
+            return@LaunchedEffect
+        }
+        repeat(2) { withFrameNanos { } }
+        runCatching { contentFocusRequester.requestFocus() }
+        pendingContentFocusTransfer = false
+    }
+
+    LaunchedEffect(drawerState.currentValue, selectedDrawerRoute, showSidebar, pendingSidebarFocusRequest) {
+        if (!showSidebar || !pendingSidebarFocusRequest || drawerState.currentValue != DrawerValue.Open) {
+            return@LaunchedEffect
+        }
+        val targetRoute = selectedDrawerRoute ?: drawerItems.firstOrNull()?.route ?: run {
+            pendingSidebarFocusRequest = false
+            return@LaunchedEffect
+        }
+        val requester = drawerItemFocusRequesters[targetRoute] ?: run {
+            pendingSidebarFocusRequest = false
+            return@LaunchedEffect
+        }
+        repeat(2) { withFrameNanos { } }
+        runCatching { requester.requestFocus() }
+        pendingSidebarFocusRequest = false
+    }
+
+    SidebarFocusRecoveryEffect(
+        drawerItems = drawerItems,
+        selectedDrawerRoute = selectedDrawerRoute,
+        drawerItemFocusRequesters = drawerItemFocusRequesters,
+        sidebarOwnsFocus = showSidebar && drawerState.currentValue == DrawerValue.Open
+    )
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = { drawerValue ->
+            if (showSidebar) {
+                val drawerWidth = if (drawerValue == DrawerValue.Open) openDrawerWidth else closedDrawerWidth
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(drawerWidth)
+                        .background(PlayTorrioTheme.colors.Background)
+                        .padding(horizontal = PlayTorrioTheme.spacing.card.outer)
+                        .selectableGroup()
+                        .onPreviewKeyEvent { keyEvent ->
+                            if (keyEvent.type == KeyEventType.KeyDown) {
+                                legacyDrawerInteractionVersion++
+                            }
+                            val closeKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                            if (keyEvent.key == closeKey && keyEvent.type == KeyEventType.KeyDown) {
+                                drawerState.setValue(DrawerValue.Closed)
+                                pendingContentFocusTransfer = false
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                ) {
+                    val isExpanded = drawerValue == DrawerValue.Open
+                    val itemWidth by animateDpAsState(
+                        targetValue = if (isExpanded) openDrawerItemWidth else PlayTorrioTheme.sizes.avatars.md,
+                        animationSpec = tween(durationMillis = PlayTorrioMotion.tokens.durations.fast, easing = PlayTorrioMotion.tokens.easings.standard),
+                        label = "legacySidebarItemWidth"
+                    )
+
+                    if (isExpanded) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            if (showProfileSelector && activeProfileName.isNotEmpty()) {
+                                var isProfileFocused by remember { mutableStateOf(false) }
+                                val profileItemShape = PlayTorrioTheme.shapes.navItem
+                                val profileLeadingInset = PlayTorrioTheme.spacing.lg + PlayTorrioTheme.spacing.xxs
+                                val profileAvatarSize = PlayTorrioTheme.sizes.sidebar.leadingVisual
+                                val profileLabelStart = 60.dp
+                                val profileGapAfterAvatar =
+                                    (profileLabelStart - profileLeadingInset - profileAvatarSize).coerceAtLeast(PlayTorrioTheme.spacing.none)
+                                val profileBgColor = if (isProfileFocused) PlayTorrioTheme.colors.FocusBackground else Color.Transparent
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .width(itemWidth)
+                                            .height(sidebarTokens.itemHeight)
+                                            .background(color = profileBgColor, shape = profileItemShape)
+                                            .onFocusChanged { isProfileFocused = it.isFocused }
+                                            .clickable {
+                                                onSwitchProfile()
+                                                drawerState.setValue(DrawerValue.Closed)
+                                            },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Spacer(modifier = Modifier.width(profileLeadingInset))
+                                        ProfileAvatarCircle(
+                                            name = activeProfileName,
+                                            colorHex = activeProfileColorHex,
+                                            size = profileAvatarSize,
+                                            avatarImageUrl = activeProfileAvatarImageUrl,
+                                            imageCrossfade = false
+                                        )
+                                        Spacer(modifier = Modifier.width(profileGapAfterAvatar))
+                                        Text(
+                                            text = activeProfileName,
+                                            color = if (isProfileFocused) PlayTorrioTheme.colors.TextPrimary else PlayTorrioTheme.colors.TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Start,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    BrandWordmark(
+                                        contentDescription = stringResource(R.string.app_name),
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.90f)
+                                            .height(48.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
+
+                    val legacyScrollState = rememberScrollState()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(legacyScrollState),
+                        verticalArrangement = Arrangement.Top,
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 32.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            drawerItems.forEach { item ->
+                                key(item.route) {
+                                    LegacySidebarButton(
+                                        label = item.label,
+                                        iconRes = item.iconRes,
+                                        icon = item.icon,
+                                        selected = selectedDrawerRoute == item.route,
+                                        expanded = isExpanded,
+                                        onClick = {
+                                            keyboardController?.hide()
+                                            onNavigate(item.route)
+                                            navigateToDrawerRoute(
+                                                navController = navController,
+                                                currentRoute = currentRoute,
+                                                targetRoute = item.route
+                                            )
+                                            drawerState.setValue(DrawerValue.Closed)
+                                            pendingContentFocusTransfer = currentRoute == item.route
+                                        },
+                                        modifier = Modifier.focusRequester(
+                                            drawerItemFocusRequesters.getValue(item.route)
+                                        )
+                                            .width(itemWidth)
+                                            .offset(x = PlayTorrioTheme.spacing.md)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ) {
+        val contentStartPadding by animateDpAsState(
+            targetValue = if (showSidebar && !sidebarCollapsed) {
+                PlayTorrioLayout.tokens.sidebarContentOffset
+            } else {
+                PlayTorrioTheme.spacing.none
+            },
+            animationSpec = tween(PlayTorrioMotion.tokens.durations.medium),
+            label = "contentStartPadding"
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = contentStartPadding)
+                .onPreviewKeyEvent { keyEvent ->
+                    // Long-press Back on a root route directly opens the sidebar,
+                    // bypassing the "scroll row to start" BackHandler in home content.
+                    if (keyEvent.key == Key.Back) {
+                        if (
+                            keyEvent.type == KeyEventType.KeyDown &&
+                            showSidebar &&
+                            drawerState.currentValue == DrawerValue.Closed &&
+                            currentRoute in rootRoutes &&
+                            keyEvent.nativeKeyEvent.isLongPress
+                        ) {
+                            if (!longPressBackHeld.value) {
+                                longPressBackHeld.value = true
+                                pendingSidebarFocusRequest = true
+                                drawerState.setValue(DrawerValue.Open)
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        if (longPressBackHeld.value) {
+                            if (keyEvent.type == KeyEventType.KeyUp) longPressBackHeld.value = false
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                    false
+                }
+                .onKeyEvent { keyEvent ->
+                    val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                    if (
+                        showSidebar &&
+                        drawerState.currentValue == DrawerValue.Closed &&
+                        keyEvent.type == KeyEventType.KeyDown &&
+                        keyEvent.key == openKey
+                    ) {
+                        if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
+                            true
+                        } else {
+                            pendingSidebarFocusRequest = true
+                            drawerState.setValue(DrawerValue.Open)
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                }
+        ) {
+            CompositionLocalProvider(
+                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
+                LocalContentFocusRequester provides contentFocusRequester
+            ) {
+                PlayTorrioNavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    hideBuiltInHeaders = hideBuiltInHeaders
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegacySidebarButton(
+    label: String,
+    iconRes: Int?,
+    icon: ImageVector?,
+    selected: Boolean,
+    expanded: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val itemShape = PlayTorrioTheme.shapes.navItem
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> PlayTorrioTheme.colors.FocusBackground
+            expanded && selected -> PlayTorrioTheme.colors.Secondary
+            else -> Color.Transparent
+        },
+        label = "legacySidebarItemBackground"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> PlayTorrioTheme.colors.TextPrimary
+            expanded && selected -> PlayTorrioTheme.colors.OnSecondary
+            else -> PlayTorrioTheme.colors.TextSecondary
+        },
+        label = "legacySidebarItemContent"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            isFocused -> PlayTorrioTheme.colors.TextPrimary
+            expanded && selected -> PlayTorrioTheme.colors.OnSecondary
+            selected -> PlayTorrioTheme.colors.Secondary
+            !expanded -> PlayTorrioTheme.colors.TextTertiary
+            else -> PlayTorrioTheme.colors.TextSecondary
+        },
+        label = "legacySidebarItemIconTint"
+    )
+    val selectedCollapsedIconBrush = if (selected && !expanded) {
+        ThemeColors.getColorPalette(PlayTorrioTheme.currentTheme).accentBrush()
+    } else {
+        null
+    }
+    val itemScale by animateFloatAsState(
+        targetValue = if (isFocused && expanded) 1.1f else 1f,
+        animationSpec = tween(durationMillis = PlayTorrioMotion.tokens.durations.fast, easing = PlayTorrioMotion.tokens.easings.standard),
+        label = "legacySidebarItemScale"
+    )
+
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .height(PlayTorrioComponents.tokens.sidebar.itemHeight)
+            .graphicsLayer {
+                scaleX = itemScale
+                scaleY = itemScale
+                transformOrigin = TransformOrigin.Center
+            }
+            .focusProperties { canFocus = expanded }
+            .onFocusChanged { isFocused = it.hasFocus },
+        colors = CardDefaults.colors(
+            containerColor = backgroundColor,
+            focusedContainerColor = backgroundColor,
+        ),
+        border = CardDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(PlayTorrioStrokes.tokens.thin, Color.Transparent),
+                shape = itemShape
+            )
+        ),
+        shape = CardDefaults.shape(shape = itemShape),
+        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+        DrawerItemIcon(
+            iconRes = iconRes,
+            icon = icon,
+            tint = iconTint,
+            brush = selectedCollapsedIconBrush,
+            modifier = Modifier
+                .size(PlayTorrioComponents.tokens.sidebar.iconSize)
+                .align(Alignment.CenterStart)
+                .offset(x = 13.dp)
+        )
+        if (expanded) {
+            com.playtorrio.tv.ui.components.AutoResizeText(
+                text = label,
+                color = contentColor,
+                textAlign = TextAlign.Start,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 54.dp, end = 14.dp)
+            )
+        }
+    }
+}
+}
+
+@Composable
+private fun ModernSidebarScaffold(
+    longPressBackHeld: MutableState<Boolean>,
+    navController: NavHostController,
+    startDestination: String,
+    currentRoute: String?,
+    rootRoutes: Set<String>,
+    drawerItems: List<DrawerItem>,
+    selectedDrawerRoute: String?,
+    selectedDrawerItem: DrawerItem,
+    sidebarCollapsed: Boolean,
+    modernSidebarBlurEnabled: Boolean,
+    hideBuiltInHeaders: Boolean,
+    activeProfileName: String,
+    activeProfileColorHex: String,
+    activeProfileAvatarImageUrl: String?,
+    showProfileSelector: Boolean,
+    onSwitchProfile: () -> Unit,
+    onNavigate: (String) -> Unit,
+    onExitApp: () -> Unit
+) {
+    val showSidebar = currentRoute in rootRoutes
+    val sidebarTokens = PlayTorrioComponents.tokens.sidebar
+    val collapsedSidebarWidth = if (sidebarCollapsed) PlayTorrioTheme.spacing.none else sidebarTokens.collapsedWidth
+    val openSidebarWidth = sidebarTokens.expandedWidth
+
+    val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val contentFocusRequester = remember { FocusRequester() }
+    val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    var isSidebarExpanded by remember { mutableStateOf(false) }
+    var sidebarCollapsePending by remember { mutableStateOf(false) }
+    var pendingContentFocusTransfer by remember { mutableStateOf(false) }
+    var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
+    var focusedDrawerIndex by remember { mutableStateOf(-1) }
+    var isFloatingPillIconOnly by remember { mutableStateOf(false) }
+    val keepFloatingPillExpanded = selectedDrawerRoute == Screen.Settings.route
+    val keepSidebarFocusDuringCollapse =
+        isSidebarExpanded || sidebarCollapsePending || pendingContentFocusTransfer
+    val hasSidebarProfileItem = showProfileSelector && activeProfileName.isNotEmpty()
+    val sidebarTopBoundaryIndex = if (hasSidebarProfileItem) drawerItems.size else 0
+
+    LaunchedEffect(showSidebar) {
+        if (!showSidebar) {
+            isSidebarExpanded = false
+            sidebarCollapsePending = false
+            pendingContentFocusTransfer = false
+            pendingSidebarFocusRequest = false
+            isFloatingPillIconOnly = false
+        }
+    }
+
+    LaunchedEffect(keepFloatingPillExpanded, showSidebar) {
+        if (!showSidebar || keepFloatingPillExpanded) {
+            isFloatingPillIconOnly = false
+        }
+    }
+
+    BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
+        isSidebarExpanded = true
+        sidebarCollapsePending = false
+        pendingSidebarFocusRequest = true
+    }
+
+    BackHandler(enabled = currentRoute in rootRoutes && isSidebarExpanded && !sidebarCollapsePending) {
+        if (longPressBackHeld.value) return@BackHandler
+        onExitApp()
+    }
+
+    LaunchedEffect(sidebarCollapsePending, isSidebarExpanded, showSidebar) {
+        if (!showSidebar || !sidebarCollapsePending) {
+            return@LaunchedEffect
+        }
+        if (!isSidebarExpanded) {
+            sidebarCollapsePending = false
+            return@LaunchedEffect
+        }
+        delay(95L)
+        isSidebarExpanded = false
+        sidebarCollapsePending = false
+    }
+
+    // Auto-collapse the expanded sidebar after a short period of inactivity.
+    // The timer resets every time focus moves between drawer items, so the
+
+    // Auto-collapse the floating pill back to icon-only when the user reveals
+    // its label (DPAD UP from content) and then leaves it idle. The DPAD DOWN
+    // path already collapses it instantly, this just covers the case where the
+    // user releases UP and walks away.
+    LaunchedEffect(isFloatingPillIconOnly, keepFloatingPillExpanded, showSidebar, isSidebarExpanded) {
+        if (!showSidebar || isFloatingPillIconOnly || keepFloatingPillExpanded || isSidebarExpanded) {
+            return@LaunchedEffect
+        }
+        delay(SIDEBAR_AUTO_COLLAPSE_DELAY_MS)
+        isFloatingPillIconOnly = true
+    }
+
+    val sidebarVisible = showSidebar && (isSidebarExpanded || !sidebarCollapsed)
+    val sidebarHazeState = remember { HazeState() }
+    val targetSidebarWidth = when {
+        !sidebarVisible -> PlayTorrioTheme.spacing.none
+        isSidebarExpanded -> openSidebarWidth
+        else -> collapsedSidebarWidth
+    }
+    val sidebarWidth by animateDpAsState(
+        targetValue = targetSidebarWidth,
+        animationSpec = if (isSidebarExpanded) {
+            keyframes {
+                durationMillis = 365
+                (openSidebarWidth + PlayTorrioTheme.spacing.md) at 175
+            }
+        } else {
+            tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarEnter, easing = PlayTorrioMotion.tokens.easings.decelerate)
+        },
+        label = "sidebarWidth"
+    )
+    val animationDuration = if (sidebarVisible) 400 else 300
+    val animationEasing = if (sidebarVisible) FastOutSlowInEasing else FastOutLinearInEasing
+
+    val sidebarSlideX by animateDpAsState(
+        targetValue = if (sidebarVisible) PlayTorrioTheme.spacing.none else (-24).dp,
+        animationSpec = tween(durationMillis = animationDuration, easing = animationEasing),
+        label = "sidebarSlideX"
+    )
+    val sidebarSurfaceAlpha by animateFloatAsState(
+        targetValue = if (sidebarVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = animationDuration, easing = animationEasing),
+        label = "sidebarSurfaceAlpha"
+    )
+    val shouldApplySidebarHaze = showSidebar && modernSidebarBlurEnabled && (
+        isSidebarExpanded || sidebarCollapsePending
+        )
+    val sidebarTransition = updateTransition(
+        targetState = isSidebarExpanded,
+        label = "sidebarTransition"
+    )
+    val sidebarLabelAlpha by sidebarTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarLabelIn, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarLabelOut, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "sidebarLabelAlpha"
+    ) { expanded ->
+        if (expanded) 1f else 0f
+    }
+    val sidebarExpandProgress by sidebarTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarPanelIn, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarPanelOut, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "sidebarExpandProgress"
+    ) { expanded ->
+        if (expanded) 1f else 0f
+    }
+
+    // derivedStateOf prevents per-frame recomposition — only triggers when the boolean crosses the threshold
+    val sidebarBlocksContentKeys by remember { derivedStateOf { sidebarExpandProgress > 0.2f } }
+    val sidebarShowExpandedPanel by remember { derivedStateOf { sidebarExpandProgress > 0.01f } }
+    val sidebarShowCollapsedPill by remember { derivedStateOf { sidebarExpandProgress < 0.98f } }
+
+    val sidebarIconScale by sidebarTransition.animateFloat(
+        transitionSpec = { tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarLabelOut, easing = FastOutSlowInEasing) },
+        label = "sidebarIconScale"
+    ) { expanded ->
+        if (expanded) 1f else 0.92f
+    }
+    val sidebarBloomScale by sidebarTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarPanelIn, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarBloomOut, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "sidebarBloomScale"
+    ) { expanded ->
+        if (expanded) 1f else 0.9f
+    }
+    val sidebarDeflateOffsetX by sidebarTransition.animateDp(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarPanelIn, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarBloomOut, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "sidebarDeflateOffsetX"
+    ) { expanded ->
+        if (expanded) PlayTorrioTheme.spacing.none else (-10).dp
+    }
+    val sidebarDeflateOffsetY by sidebarTransition.animateDp(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarPanelIn, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = PlayTorrioMotion.tokens.durations.sidebarBloomOut, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "sidebarDeflateOffsetY"
+    ) { expanded ->
+        if (expanded) PlayTorrioTheme.spacing.none else (-8).dp
+    }
+
+    LaunchedEffect(isSidebarExpanded, sidebarCollapsePending, pendingContentFocusTransfer, showSidebar) {
+        if (!showSidebar || !pendingContentFocusTransfer || isSidebarExpanded || sidebarCollapsePending) {
+            return@LaunchedEffect
+        }
+        repeat(2) { withFrameNanos { } }
+        runCatching { contentFocusRequester.requestFocus() }
+        pendingContentFocusTransfer = false
+    }
+
+    LaunchedEffect(isSidebarExpanded, pendingSidebarFocusRequest, showSidebar, selectedDrawerRoute) {
+        if (!showSidebar || !pendingSidebarFocusRequest || !isSidebarExpanded) {
+            return@LaunchedEffect
+        }
+        val targetRoute = selectedDrawerRoute ?: drawerItems.firstOrNull()?.route ?: run {
+            pendingSidebarFocusRequest = false
+            return@LaunchedEffect
+        }
+        val requester = drawerItemFocusRequesters[targetRoute] ?: run {
+            pendingSidebarFocusRequest = false
+            return@LaunchedEffect
+        }
+        repeat(2) { withFrameNanos { } }
+        runCatching { requester.requestFocus() }
+        pendingSidebarFocusRequest = false
+    }
+
+    SidebarFocusRecoveryEffect(
+        drawerItems = drawerItems,
+        selectedDrawerRoute = selectedDrawerRoute,
+        drawerItemFocusRequesters = drawerItemFocusRequesters,
+        sidebarOwnsFocus = showSidebar && isSidebarExpanded
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { keyEvent ->
+                // Consume all Back key events after long-press until released,
+                // preventing the exit-app BackHandler from firing during the hold.
+                if (longPressBackHeld.value && keyEvent.key == Key.Back) {
+                    if (keyEvent.type == KeyEventType.KeyUp) longPressBackHeld.value = false
+                    return@onPreviewKeyEvent true
+                }
+                false
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { keyEvent ->
+                    // Long-press Back on a root route directly opens the sidebar,
+                    // bypassing the "scroll row to start" BackHandler in home content.
+                    if (keyEvent.key == Key.Back) {
+                        if (
+                            keyEvent.type == KeyEventType.KeyDown &&
+                            showSidebar &&
+                            !isSidebarExpanded &&
+                            !sidebarCollapsePending &&
+                            currentRoute in rootRoutes &&
+                            keyEvent.nativeKeyEvent.isLongPress
+                        ) {
+                            if (!longPressBackHeld.value) {
+                                longPressBackHeld.value = true
+                                isSidebarExpanded = true
+                                sidebarCollapsePending = false
+                                pendingSidebarFocusRequest = true
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        if (longPressBackHeld.value) {
+                            if (keyEvent.type == KeyEventType.KeyUp) longPressBackHeld.value = false
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                    if (
+                        isSidebarExpanded &&
+                        !sidebarCollapsePending &&
+                        sidebarBlocksContentKeys &&
+                        keyEvent.type == KeyEventType.KeyDown &&
+                        isBlockedContentKey(keyEvent.key)
+                    ) {
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .onKeyEvent { keyEvent ->
+                    if (showSidebar && !isSidebarExpanded && keyEvent.type == KeyEventType.KeyDown) {
+                        if (!keepFloatingPillExpanded) {
+                            when (keyEvent.key) {
+                                Key.DirectionDown -> isFloatingPillIconOnly = true
+                                Key.DirectionUp -> isFloatingPillIconOnly = false
+                                else -> Unit
+                            }
+                        }
+                        val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                        if (keyEvent.key == openKey) {
+                            if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
+                                true
+                            } else {
+                                isSidebarExpanded = true
+                                sidebarCollapsePending = false
+                                pendingSidebarFocusRequest = true
+                                true
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+        ) {
+            CompositionLocalProvider(
+                LocalSidebarExpanded provides isSidebarExpanded,
+                LocalContentFocusRequester provides contentFocusRequester
+            ) {
+                PlayTorrioNavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    hideBuiltInHeaders = hideBuiltInHeaders
+                )
+            }
+        }
+
+        if (showSidebar && (sidebarVisible || sidebarWidth > PlayTorrioTheme.spacing.none)) {
+            val panelShape = RoundedCornerShape(sidebarTokens.panelRadius)
+            val showExpandedPanel = isSidebarExpanded || sidebarShowExpandedPanel
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .width(sidebarWidth)
+                    .padding(start = PlayTorrioTheme.spacing.lg - PlayTorrioTheme.spacing.xxs, top = PlayTorrioTheme.spacing.lg, bottom = PlayTorrioTheme.spacing.md, end = PlayTorrioTheme.spacing.sm)
+                    .offset {
+                        IntOffset(
+                            (sidebarSlideX + sidebarDeflateOffsetX).roundToPx(),
+                            sidebarDeflateOffsetY.roundToPx()
+                        )
+                    }
+                    .graphicsLayer {
+                        alpha = sidebarSurfaceAlpha
+                        scaleX = sidebarBloomScale
+                        scaleY = sidebarBloomScale
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+                    .selectableGroup()
+                    .onPreviewKeyEvent { keyEvent ->
+                        if (!isSidebarExpanded || keyEvent.type != KeyEventType.KeyDown) {
+                            return@onPreviewKeyEvent false
+                        }
+                        when (keyEvent.key) {
+                            Key.DirectionUp -> {
+                                focusedDrawerIndex == sidebarTopBoundaryIndex
+                            }
+
+                            Key.DirectionDown -> {
+                                focusedDrawerIndex == drawerItems.lastIndex
+                            }
+
+                            Key.DirectionRight, Key.DirectionLeft -> {
+                                val collapseKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                                if (keyEvent.key == collapseKey) {
+                                    pendingContentFocusTransfer = false
+                                    sidebarCollapsePending = true
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+
+                            else -> false
+                        }
+                    }
+            ) {
+                if (showExpandedPanel) {
+                    ModernSidebarBlurPanel(
+                        drawerItems = drawerItems,
+                        selectedDrawerRoute = selectedDrawerRoute,
+                        keepSidebarFocusDuringCollapse = keepSidebarFocusDuringCollapse,
+                        sidebarLabelAlpha = sidebarLabelAlpha,
+                        sidebarIconScale = sidebarIconScale,
+                        sidebarExpandProgress = sidebarExpandProgress,
+                        isSidebarExpanded = isSidebarExpanded,
+                        sidebarCollapsePending = sidebarCollapsePending,
+                        blurEnabled = modernSidebarBlurEnabled,
+                        sidebarHazeState = sidebarHazeState,
+                        panelShape = panelShape,
+                        drawerItemFocusRequesters = drawerItemFocusRequesters,
+                        onDrawerItemFocused = { focusedDrawerIndex = it },
+                        onDrawerItemClick = { targetRoute ->
+                            keyboardController?.hide()
+                            onNavigate(targetRoute)
+                            navigateToDrawerRoute(
+                                navController = navController,
+                                currentRoute = currentRoute,
+                                targetRoute = targetRoute
+                            )
+                            pendingSidebarFocusRequest = false
+                            isSidebarExpanded = false
+                            sidebarCollapsePending = false
+                            pendingContentFocusTransfer = currentRoute == targetRoute
+                        },
+                        activeProfileName = activeProfileName,
+                        activeProfileColorHex = activeProfileColorHex,
+                        activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                        showProfileSelector = showProfileSelector,
+                        onSwitchProfile = onSwitchProfile
+                    )
+                }
+            }
+
+            if (
+                !sidebarCollapsed &&
+                sidebarShowCollapsedPill &&
+                selectedDrawerRoute != Screen.Search.route
+            ) {
+                CollapsedSidebarPill(
+                    label = selectedDrawerItem.label,
+                    iconRes = selectedDrawerItem.iconRes,
+                    icon = selectedDrawerItem.icon,
+                    iconOnly = isFloatingPillIconOnly && !keepFloatingPillExpanded,
+                    blurEnabled = modernSidebarBlurEnabled,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset {
+                            IntOffset(
+                                (PlayTorrioTheme.spacing.lg - PlayTorrioTheme.spacing.xxs).roundToPx(),
+                                (PlayTorrioTheme.spacing.lg + sidebarDeflateOffsetY).roundToPx()
+                            )
+                        }
+                        .graphicsLayer {
+                            val progress = sidebarExpandProgress
+                            alpha = 1f - progress
+                            val s = 0.9f + (0.1f * (1f - progress))
+                            scaleX = s
+                            scaleY = s
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        },
+                    onExpand = {
+                        isSidebarExpanded = true
+                        sidebarCollapsePending = false
+                        pendingSidebarFocusRequest = true
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollapsedSidebarPill(
+    label: String,
+    iconRes: Int?,
+    icon: ImageVector?,
+    iconOnly: Boolean,
+    blurEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    onExpand: () -> Unit
+) {
+    val pillShape = RoundedCornerShape(PlayTorrioRadii.tokens.full)
+    val colors = PlayTorrioTheme.colors
+    val bgElevated = colors.BackgroundElevated
+    val bgCard = colors.BackgroundCard
+    val borderBase = colors.Border
+    val mediaColors = colors.media
+    val pillBackgroundBrush = remember(blurEnabled, bgElevated, bgCard, mediaColors) {
+        if (blurEnabled) {
+            Brush.verticalGradient(listOf(mediaColors.glassPanelTop, mediaColors.glassPanelBottom))
+        } else {
+            Brush.verticalGradient(listOf(bgElevated, bgCard))
+        }
+    }
+    val pillBorderColor = remember(blurEnabled, borderBase) {
+        if (blurEnabled) PlayTorrioPrimitives.white.copy(alpha = 0.14f) else borderBase.copy(alpha = 0.9f)
+    }
+
+    Row(
+        modifier = modifier
+            .focusProperties { canFocus = false }
+            .animateContentSize()
+            .clickable(onClick = onExpand)
+            .padding(horizontal = PlayTorrioTheme.spacing.hairline, vertical = PlayTorrioTheme.spacing.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(0.25.dp)
+    ) {
+        if (!iconOnly) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_chevron_compact_left),
+                contentDescription = stringResource(R.string.cd_expand_sidebar),
+                modifier = Modifier
+                    .width(8.5.dp)
+                    .height(PlayTorrioTheme.spacing.lg)
+                    .offset(y = (-0.5).dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .height(PlayTorrioTheme.sizes.player.control)
+                .graphicsLayer {
+                    shape = pillShape
+                    clip = true
+                }
+                .clip(pillShape)
+                .background(brush = pillBackgroundBrush, shape = pillShape)
+                .border(width = PlayTorrioStrokes.tokens.hairline, color = pillBorderColor, shape = pillShape)
+        ) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .padding(start = 5.dp, end = if (iconOnly) 5.dp else PlayTorrioTheme.spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (iconOnly) PlayTorrioTheme.spacing.none else 9.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(PlayTorrioTheme.sizes.sidebar.leadingVisual)
+                        .clip(CircleShape)
+                        .background(PlayTorrioTheme.colors.SurfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    DrawerItemIcon(
+                        iconRes = iconRes,
+                        icon = icon,
+                        tint = PlayTorrioTheme.colors.text.onOverlay,
+                        modifier = Modifier
+                            .size(PlayTorrioTheme.sizes.sidebar.leadingVisual - PlayTorrioTheme.spacing.md)
+                            .offset(y = (-0.5).dp)
+                    )
+                }
+
+                if (!iconOnly) {
+                    Text(
+                        text = label,
+                        color = PlayTorrioTheme.colors.text.onOverlay,
+                        style = androidx.tv.material3.MaterialTheme.typography.titleLarge.copy(
+                            lineHeight = 30.sp
+                        ),
+                        modifier = Modifier.offset(y = (-0.5).dp),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun navigateToDrawerRoute(
+    navController: NavHostController,
+    currentRoute: String?,
+    targetRoute: String
+) {
+    if (currentRoute == targetRoute) {
+        if (targetRoute == Screen.Home.route) {
+            // Scroll Home to top by clearing saved focus/scroll state on the ViewModel.
+            val homeEntry = try {
+                navController.getBackStackEntry(Screen.Home.route)
+            } catch (_: IllegalArgumentException) {
+                // "home" not yet on the back stack (e.g. nav graph not fully initialized).
+                return
+            }
+            val homeViewModel = androidx.lifecycle.ViewModelProvider(homeEntry)[com.playtorrio.tv.ui.screens.home.HomeViewModel::class.java]
+            homeViewModel.requestScrollToTop()
+        }
+        return
+    }
+    navController.navigate(targetRoute) {
+        popUpTo(navController.graph.startDestinationId) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+private fun isBlockedContentKey(key: Key): Boolean {
+    return key == Key.DirectionUp ||
+        key == Key.DirectionDown ||
+        key == Key.DirectionLeft ||
+        key == Key.DirectionRight ||
+        key == Key.DirectionCenter ||
+        key == Key.Enter
+}
+
+@Composable
+private fun DrawerItemIcon(
+    iconRes: Int?,
+    icon: ImageVector?,
+    modifier: Modifier = Modifier,
+    tint: Color = androidx.tv.material3.LocalContentColor.current,
+    brush: Brush? = null
+) {
+    val iconModifier = if (brush == null) {
+        modifier
+    } else {
+        modifier
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithCache {
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(brush = brush, blendMode = BlendMode.SrcIn)
+                }
+            }
+    }
+    val iconTint = if (brush == null) tint else Color.White
+    when {
+        icon != null -> Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = iconModifier
+        )
+
+        iconRes != null -> Icon(
+            painter = rememberRawSvgPainter(iconRes),
+            contentDescription = null,
+            tint = iconTint,
+            modifier = iconModifier
+        )
+    }
+}
+
+@Composable
+private fun rememberRawSvgPainter(rawIconRes: Int): Painter {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val sizePx = with(density) { PlayTorrioTheme.spacing.xl.roundToPx() }
+    return rememberAsyncImagePainter(
+        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+            .data(rawIconRes)
+            .size(sizePx)
+            .build()
+    )
+}
+
+object LocaleCache {
+    const val UNSET = "__UNSET__"
+
+    @Volatile
+    var localeTag: String = UNSET
+}

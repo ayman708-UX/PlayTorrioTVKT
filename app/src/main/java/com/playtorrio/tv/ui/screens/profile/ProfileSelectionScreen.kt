@@ -1,0 +1,2415 @@
+package com.playtorrio.tv.ui.screens.profile
+
+import com.playtorrio.tv.ui.theme.PlayTorrioMotion
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+
+import android.graphics.Rect
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.playtorrio.tv.R
+import com.playtorrio.tv.core.sync.SetProfilePinResult
+import com.playtorrio.tv.data.remote.supabase.AvatarCatalogItem
+import com.playtorrio.tv.data.remote.supabase.ProfileBackgroundCatalogItem
+import com.playtorrio.tv.domain.model.UserProfile
+import com.playtorrio.tv.ui.components.AvatarPickerGrid
+import com.playtorrio.tv.ui.components.CustomProfileBackgroundImage
+import com.playtorrio.tv.ui.components.MemberBrandWordmark
+import com.playtorrio.tv.ui.components.PlayTorrioDialog
+import com.playtorrio.tv.ui.components.ProfileBackgroundImage
+import com.playtorrio.tv.ui.components.ProfileBackgroundPicker
+import com.playtorrio.tv.ui.components.ProfileAvatarCircle
+import com.playtorrio.tv.ui.components.ProfileEditorTab
+import com.playtorrio.tv.ui.components.ProfileEditorTabs
+import com.playtorrio.tv.ui.membership.Membership
+import com.playtorrio.tv.ui.util.rememberLongPressKeyTracker
+import com.playtorrio.tv.domain.model.ProfileBackgroundSelection
+import com.playtorrio.tv.domain.model.resolveProfileBackgroundSelection
+import kotlinx.coroutines.delay
+
+private object ProfileSelectionSpacing {
+    val ScreenPaddingHorizontal = PlayTorrioTheme.spacing.huge
+    val ScreenPaddingVertical = PlayTorrioTheme.spacing.xxxl
+    val LogoHeight = 44.dp
+    val LogoToHeading = 28.dp
+    val HeadingToSubheading = PlayTorrioTheme.spacing.md
+    val GridItemGap = 28.dp
+    val CompactGridItemGap = PlayTorrioTheme.spacing.md
+    val CardWidth = 152.dp
+    val CompactCardWidth = 128.dp
+    val CardPaddingHorizontal = 10.dp
+    val CardPaddingVertical = PlayTorrioTheme.spacing.sm
+    val AvatarContainer = 126.dp
+    val CompactAvatarContainer = 104.dp
+    val CompactAvatarSize = 82.dp
+    val CompactFocusedAvatarSize = 88.dp
+    val CompactOuterAvatarSize = 98.dp
+    val CompactFocusedOuterAvatarSize = 104.dp
+    val AvatarToName = PlayTorrioTheme.spacing.md
+    val CompactAvatarToName = 10.dp
+    val NameToMeta = PlayTorrioTheme.spacing.sm
+    val MetaSlotHeight = PlayTorrioTheme.spacing.lg
+    val EditorPanelMaxWidth = 980.dp
+    val EditorPanelGap = 28.dp
+    val EditorPreviewWidth = 280.dp
+    val EditorPreviewAvatarSize = 112.dp
+    val EditorFieldRadius = 14.dp
+    val EditorPreviewTopOffset = 28.dp
+    val EditorDividerHeight = 320.dp
+    val EditorDividerSpacing = 18.dp
+    val PinKickerToHeading = 14.dp
+    val PinHeadingToBoxes = 42.dp
+    val PinBoxesToSupport = 26.dp
+    val PinBoxSize = 118.dp
+    val PinBoxGap = 14.dp
+    val PinSupportMaxWidth = 720.dp
+}
+
+private sealed interface ProfileBackgroundArtwork {
+    data class Catalog(val background: ProfileBackgroundCatalogItem) : ProfileBackgroundArtwork
+    data class Custom(val url: String) : ProfileBackgroundArtwork
+}
+
+private val ProfileCardFocusEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+private const val ProfilePinLength = 4
+
+enum class ProfileSelectionMode {
+    Selection,
+    Management
+}
+
+private sealed interface ProfilePinOverlayState {
+    val profile: UserProfile
+
+    data class Unlock(override val profile: UserProfile) : ProfilePinOverlayState
+    data class Set(override val profile: UserProfile, val currentPin: String? = null) : ProfilePinOverlayState
+    data class VerifyCurrentForChange(override val profile: UserProfile) : ProfilePinOverlayState
+    data class VerifyCurrentForRemove(override val profile: UserProfile) : ProfilePinOverlayState
+    data class VerifyCurrentForDelete(override val profile: UserProfile) : ProfilePinOverlayState
+}
+
+private enum class ProfilePinEntryStage {
+    Create,
+    Confirm
+}
+
+private data class KeyboardVisibilityState(
+    val isVisible: Boolean,
+    val bottomPx: Int
+)
+
+@Composable
+fun ProfileSelectionScreen(
+    onProfileSelected: () -> Unit,
+    screenMode: ProfileSelectionMode = ProfileSelectionMode.Selection,
+    onBackPress: (() -> Unit)? = null,
+    viewModel: ProfileSelectionViewModel = hiltViewModel()
+) {
+    val context = LocalContext.current
+    val profiles by viewModel.profiles.collectAsState()
+    val activeProfileId by viewModel.activeProfileId.collectAsState()
+    val avatarCatalog by viewModel.avatarCatalog.collectAsState()
+    val profileBackgroundCatalog by viewModel.profileBackgroundCatalog.collectAsState()
+    val hasProfileBackgroundAccess by viewModel.hasProfileBackgroundAccess.collectAsState()
+    val isCreating by viewModel.isCreating.collectAsState()
+    val isSaving by viewModel.isSaving.collectAsState()
+    val profilePinEnabled by viewModel.profilePinEnabled.collectAsState()
+    val isPinOperationInProgress by viewModel.isPinOperationInProgress.collectAsState()
+    val avatarImageUrlsById = remember(avatarCatalog, profiles) {
+        buildMap {
+            avatarCatalog.forEach { avatar -> put(avatar.id, avatar.imageUrl) }
+            profiles.mapNotNull(UserProfile::avatarId).forEach { avatarId ->
+                viewModel.getAvatarImageUrl(avatarId)?.let { imageUrl -> putIfAbsent(avatarId, imageUrl) }
+            }
+        }
+    }
+    val profileBackgroundsById = remember(profileBackgroundCatalog) {
+        profileBackgroundCatalog.associateBy { it.id }
+    }
+    val memberAccess = Membership.access
+    var focusedAvatarColor by remember { mutableStateOf(Color(0xFF1E88E5)) }
+    var focusedProfileId by remember { mutableStateOf<Int?>(null) }
+    var showCreateProfile by remember { mutableStateOf(false) }
+    var longPressedProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var suppressOptionsDialogFirstKeyUp by remember { mutableStateOf(true) }
+    var profileToDelete by remember { mutableStateOf<UserProfile?>(null) }
+    var profileToEdit by remember { mutableStateOf<UserProfile?>(null) }
+    var pinOverlayState by remember { mutableStateOf<ProfilePinOverlayState?>(null) }
+    var pinOverlayError by remember { mutableStateOf<String?>(null) }
+    var pinActionMessage by remember { mutableStateOf<String?>(null) }
+    val onProfileFocusedChange = remember {
+        { profile: UserProfile? ->
+            focusedProfileId = profile?.id
+            focusedAvatarColor = profile?.avatarColorHex?.let(::parseProfileColor) ?: Color(0xFF555555)
+        }
+    }
+    val focusedProfile = profiles.firstOrNull { it.id == focusedProfileId }
+    val isManagementMode = screenMode == ProfileSelectionMode.Management
+    val screenTitle = if (isManagementMode) {
+        stringResource(R.string.profile_manage_title)
+    } else {
+        stringResource(R.string.profile_selection_title)
+    }
+    val screenSubtitle = if (isManagementMode) {
+        stringResource(R.string.profile_manage_subtitle)
+    } else {
+        stringResource(R.string.profile_selection_subtitle)
+    }
+    val screenHint = if (isManagementMode) {
+        stringResource(R.string.profile_manage_hint)
+    } else {
+        stringResource(R.string.profile_selection_hint)
+    }
+
+    if (onBackPress != null) {
+        BackHandler(onBack = onBackPress)
+    }
+
+    LaunchedEffect(profiles, activeProfileId) {
+        val targetProfile = profiles.firstOrNull { it.id == focusedProfileId }
+            ?: profiles.firstOrNull { it.id == activeProfileId }
+            ?: profiles.firstOrNull()
+        targetProfile?.let { profile ->
+            focusedProfileId = profile.id
+            focusedAvatarColor = parseProfileColor(profile.avatarColorHex)
+        }
+    }
+
+    LaunchedEffect(profileToEdit, hasProfileBackgroundAccess) {
+        if (profileToEdit != null && hasProfileBackgroundAccess) {
+            viewModel.preloadProfileBackgrounds()
+        }
+    }
+
+    // Close overlay when profile creation succeeds
+    LaunchedEffect(isCreating) {
+        if (!isCreating && showCreateProfile) {
+            // Check if a new profile was just added
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        val overlayProfileColor = pinOverlayState?.profile?.avatarColorHex?.let(::parseProfileColor)
+        val backgroundProfile = pinOverlayState?.profile ?: focusedProfile
+        val backgroundSelection = resolveProfileBackgroundSelection(
+            profile = backgroundProfile,
+            entitlements = memberAccess.entitlements
+        )
+        LaunchedEffect(backgroundSelection) {
+            val selectedId = (backgroundSelection as? ProfileBackgroundSelection.Catalog)?.id
+            if (selectedId != null) viewModel.loadProfileBackground(selectedId)
+        }
+        val profileBackground = when (backgroundSelection) {
+            is ProfileBackgroundSelection.Catalog -> profileBackgroundsById[backgroundSelection.id]
+                ?.takeIf { it.imageFile != null }
+                ?.let {
+                ProfileBackgroundArtwork.Catalog(it)
+            }
+            is ProfileBackgroundSelection.Custom -> ProfileBackgroundArtwork.Custom(backgroundSelection.url)
+            null -> null
+        }
+        ProfileSelectionBackground(
+            focusedAvatarColor = overlayProfileColor ?: focusedAvatarColor,
+            profileBackground = profileBackground
+        )
+
+        AnimatedContent(
+            targetState = pinOverlayState,
+            transitionSpec = {
+                val entering = fadeIn(tween(240)) + slideInHorizontally(
+                    animationSpec = tween(320, easing = ProfileCardFocusEasing),
+                    initialOffsetX = { fullWidth ->
+                        if (targetState == null) -fullWidth / 10 else fullWidth / 12
+                    }
+                )
+                val exiting = fadeOut(tween(PlayTorrioMotion.tokens.durations.fast)) + slideOutHorizontally(
+                    animationSpec = tween(240),
+                    targetOffsetX = { fullWidth ->
+                        if (targetState == null) fullWidth / 12 else -fullWidth / 12
+                    }
+                )
+                entering togetherWith exiting
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "profilePinTransition"
+        ) { activePinOverlay ->
+            if (activePinOverlay == null) {
+                ProfileSelectionMainContent(
+                    screenTitle = screenTitle,
+                    screenSubtitle = screenSubtitle,
+                    screenHint = screenHint,
+                    isManagementMode = isManagementMode,
+                    profiles = profiles,
+                    activeProfileId = activeProfileId,
+                    canAddProfile = viewModel.canAddProfile,
+                    profilePinEnabled = profilePinEnabled,
+                    avatarImageUrlsById = avatarImageUrlsById,
+                    onProfileFocused = onProfileFocusedChange,
+                    onProfileSelected = { profile ->
+                        if (isManagementMode) {
+                            suppressOptionsDialogFirstKeyUp = false
+                            longPressedProfile = profile
+                        } else {
+                            if (profilePinEnabled[profile.id] == true) {
+                                pinOverlayError = null
+                                pinOverlayState = ProfilePinOverlayState.Unlock(profile)
+                            } else {
+                                viewModel.selectProfile(profile.id, onComplete = onProfileSelected)
+                            }
+                        }
+                    },
+                    onProfileLongPress = { profile ->
+                        suppressOptionsDialogFirstKeyUp = true
+                        longPressedProfile = profile
+                    },
+                    onAddProfileClick = { showCreateProfile = true }
+                )
+            } else {
+                ProfilePinOverlay(
+                    state = activePinOverlay,
+                    isWorking = isPinOperationInProgress,
+                    errorMessage = pinOverlayError,
+                    onClearError = { pinOverlayError = null },
+                    onDismiss = {
+                        pinOverlayState = null
+                        pinOverlayError = null
+                    },
+                    onSubmit = { pin ->
+                        when (activePinOverlay) {
+                            is ProfilePinOverlayState.Set -> {
+                                viewModel.setProfilePin(
+                                    activePinOverlay.profile.id,
+                                    pin,
+                                    activePinOverlay.currentPin
+                                ) { result ->
+                                    when (result) {
+                                        is SetProfilePinResult.Success -> {
+                                            pinOverlayState = null
+                                            pinOverlayError = null
+                                            pinActionMessage = context.getString(R.string.profile_pin_saved_for_profile, activePinOverlay.profile.name)
+                                        }
+                                        is SetProfilePinResult.CurrentPinRequired -> {
+                                            pinOverlayState = ProfilePinOverlayState.VerifyCurrentForChange(
+                                                activePinOverlay.profile
+                                            )
+                                            pinOverlayError = context.getString(R.string.profile_pin_current_required)
+                                        }
+                                        is SetProfilePinResult.Failure -> {
+                                            pinOverlayError = context.getString(R.string.profile_pin_save_error)
+                                        }
+                                    }
+                                }
+                            }
+
+                            is ProfilePinOverlayState.Unlock -> {
+                                viewModel.verifyProfilePin(activePinOverlay.profile.id, pin) { result ->
+                                    result.onSuccess { verify ->
+                                        if (verify.unlocked) {
+                                            pinOverlayError = null
+                                            pinOverlayState = null
+                                            viewModel.selectProfile(
+                                                activePinOverlay.profile.id,
+                                                onComplete = onProfileSelected
+                                            )
+                                        } else {
+                                            pinOverlayError = if (verify.retryAfterSeconds > 0) {
+                                                context.getString(R.string.profile_pin_locked, verify.retryAfterSeconds)
+                                            } else {
+                                                context.getString(R.string.profile_pin_invalid)
+                                            }
+                                        }
+                                    }.onFailure {
+                                        pinOverlayError = context.getString(R.string.profile_pin_verify_error)
+                                    }
+                                }
+                            }
+
+                            is ProfilePinOverlayState.VerifyCurrentForChange -> {
+                                viewModel.verifyProfilePin(activePinOverlay.profile.id, pin) { result ->
+                                    result.onSuccess { verify ->
+                                        if (verify.unlocked) {
+                                            pinOverlayError = null
+                                            pinOverlayState = ProfilePinOverlayState.Set(
+                                                profile = activePinOverlay.profile,
+                                                currentPin = pin
+                                            )
+                                        } else {
+                                            pinOverlayError = if (verify.retryAfterSeconds > 0) {
+                                                context.getString(R.string.profile_pin_locked, verify.retryAfterSeconds)
+                                            } else {
+                                                context.getString(R.string.profile_pin_incorrect)
+                                            }
+                                        }
+                                    }.onFailure {
+                                        pinOverlayError = context.getString(R.string.profile_pin_verify_error)
+                                    }
+                                }
+                            }
+
+                            is ProfilePinOverlayState.VerifyCurrentForRemove -> {
+                                viewModel.clearProfilePin(
+                                    profileId = activePinOverlay.profile.id,
+                                    currentPin = pin
+                                ) { success ->
+                                    if (success) {
+                                        pinOverlayError = null
+                                        pinOverlayState = null
+                                        pinActionMessage = context.getString(R.string.profile_pin_lock_removed_for_profile, activePinOverlay.profile.name)
+                                    } else {
+                                        pinOverlayError = context.getString(R.string.profile_pin_incorrect)
+                                    }
+                                }
+                            }
+
+                            is ProfilePinOverlayState.VerifyCurrentForDelete -> {
+                                viewModel.verifyProfilePin(activePinOverlay.profile.id, pin) { result ->
+                                    result.onSuccess { verify ->
+                                        if (verify.unlocked) {
+                                            pinOverlayError = null
+                                            pinOverlayState = null
+                                            profileToDelete = activePinOverlay.profile
+                                        } else {
+                                            pinOverlayError = if (verify.retryAfterSeconds > 0) {
+                                                context.getString(R.string.profile_pin_locked, verify.retryAfterSeconds)
+                                            } else {
+                                                context.getString(R.string.profile_pin_incorrect)
+                                            }
+                                        }
+                                    }.onFailure {
+                                        pinOverlayError = context.getString(R.string.profile_pin_verify_error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        // Create Profile Overlay
+        AnimatedVisibility(
+            visible = showCreateProfile,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(150))
+        ) {
+            CreateProfileOverlay(
+                avatarCatalog = avatarCatalog,
+                isCreating = isCreating,
+                onDismiss = { showCreateProfile = false },
+                onCreateProfile = { name, colorHex, avatarId ->
+                    viewModel.createProfile(name, colorHex, avatarId)
+                    showCreateProfile = false
+                }
+            )
+        }
+
+        // Edit Profile Overlay
+        profileToEdit?.let { profile ->
+            EditProfileOverlay(
+                profile = profile,
+                avatarCatalog = avatarCatalog,
+                profileBackgroundCatalog = profileBackgroundCatalog,
+                hasProfileBackgroundAccess = hasProfileBackgroundAccess,
+                isSaving = isSaving,
+                avatarUrlResolver = { avatarId -> viewModel.getAvatarImageUrl(avatarId) },
+                onDismiss = { profileToEdit = null },
+                onSaveProfile = { updated ->
+                    viewModel.updateProfile(updated)
+                    profileToEdit = null
+                }
+            )
+        }
+
+        LaunchedEffect(pinActionMessage) {
+            if (pinActionMessage != null) {
+                delay(2600)
+                pinActionMessage = null
+            }
+        }
+
+        AnimatedVisibility(
+            visible = pinActionMessage != null,
+            enter = fadeIn(tween(PlayTorrioMotion.tokens.durations.fast)),
+            exit = fadeOut(tween(PlayTorrioMotion.tokens.durations.fast)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            pinActionMessage?.let { message ->
+                Box(
+                    modifier = Modifier
+                        .padding(bottom = 34.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.Black.copy(alpha = 0.78f))
+                        .border(
+                            width = PlayTorrioTheme.spacing.hairline,
+                            color = Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(999.dp)
+                        )
+                        .padding(horizontal = PlayTorrioTheme.spacing.xl, vertical = 14.dp)
+                ) {
+                    Text(
+                        text = message,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Long-press options dialog (Edit / Delete)
+        longPressedProfile?.let { profile ->
+            val primaryDialogFocusRequester = remember(profile.id) { FocusRequester() }
+            LaunchedEffect(profile.id) {
+                repeat(2) { withFrameNanos { } }
+                runCatching { primaryDialogFocusRequester.requestFocus() }
+            }
+            PlayTorrioDialog(
+                onDismiss = { longPressedProfile = null },
+                title = stringResource(R.string.profile_selection_options_title),
+                width = 360.dp,
+                suppressFirstKeyUp = suppressOptionsDialogFirstKeyUp
+            ) {
+                Button(
+                    onClick = {
+                        longPressedProfile = null
+                        profileToEdit = profile
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(primaryDialogFocusRequester),
+                    colors = ButtonDefaults.colors(
+                        containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                        contentColor = PlayTorrioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.profile_edit_label))
+                }
+
+                Button(
+                    onClick = {
+                        longPressedProfile = null
+                        pinOverlayError = null
+                        pinOverlayState = if (profilePinEnabled[profile.id] == true) {
+                            ProfilePinOverlayState.VerifyCurrentForChange(profile)
+                        } else {
+                            ProfilePinOverlayState.Set(profile)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                        contentColor = PlayTorrioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        if (profilePinEnabled[profile.id] == true) {
+                            stringResource(R.string.profile_pin_change)
+                        } else {
+                            stringResource(R.string.profile_pin_set)
+                        }
+                    )
+                }
+
+                if (profilePinEnabled[profile.id] == true) {
+                    Button(
+                        onClick = {
+                            longPressedProfile = null
+                            pinOverlayError = null
+                            pinOverlayState = ProfilePinOverlayState.VerifyCurrentForRemove(profile)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.colors(
+                            containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                            contentColor = PlayTorrioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.profile_pin_remove))
+                    }
+                }
+
+                if (!profile.isPrimary) {
+                    Button(
+                        onClick = {
+                            longPressedProfile = null
+                            if (profilePinEnabled[profile.id] == true) {
+                                pinOverlayError = null
+                                pinOverlayState = ProfilePinOverlayState.VerifyCurrentForDelete(profile)
+                            } else {
+                                profileToDelete = profile
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.colors(
+                            containerColor = Color(0xFF4A2323),
+                            contentColor = PlayTorrioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.profile_delete))
+                    }
+                }
+            }
+        }
+
+        // Delete confirmation dialog
+        profileToDelete?.let { profile ->
+            val primaryDialogFocusRequester = remember(profile.id) { FocusRequester() }
+            LaunchedEffect(profile.id) {
+                repeat(2) { withFrameNanos { } }
+                runCatching { primaryDialogFocusRequester.requestFocus() }
+            }
+            PlayTorrioDialog(
+                onDismiss = { profileToDelete = null },
+                title = stringResource(R.string.profile_delete_confirm_title),
+                subtitle = stringResource(R.string.profile_delete_confirm_subtitle),
+                width = 420.dp,
+                suppressFirstKeyUp = false
+            ) {
+                Button(
+                    onClick = {
+                        viewModel.deleteProfile(profile.id)
+                        profileToDelete = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(primaryDialogFocusRequester),
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF4A2323),
+                        contentColor = PlayTorrioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.profile_delete_btn))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSelectionBackground(
+    focusedAvatarColor: Color,
+    profileBackground: ProfileBackgroundArtwork?
+) {
+    val animatedAvatarColor by animateColorAsState(
+        targetValue = focusedAvatarColor,
+        animationSpec = tween(durationMillis = 520),
+        label = "focusedAvatarColor"
+    )
+    val gradientTop = lerp(PlayTorrioTheme.colors.BackgroundElevated, animatedAvatarColor, 0.3f)
+    val gradientMid = lerp(PlayTorrioTheme.colors.Background, animatedAvatarColor, 0.14f)
+    val halfFadeStrong = animatedAvatarColor.copy(alpha = 0.26f)
+    val halfFadeSoft = animatedAvatarColor.copy(alpha = 0.08f)
+
+    AnimatedContent(
+        targetState = profileBackground,
+        transitionSpec = {
+            fadeIn(tween(320)) togetherWith fadeOut(tween(240))
+        },
+        contentKey = { background ->
+            when (background) {
+                is ProfileBackgroundArtwork.Catalog -> "catalog:${background.background.id}"
+                is ProfileBackgroundArtwork.Custom -> "custom:${background.url}"
+                null -> null
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+        label = "profileBackground"
+    ) { background ->
+        when (background) {
+            is ProfileBackgroundArtwork.Catalog -> ProfileBackgroundImage(
+                background = background.background,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+            is ProfileBackgroundArtwork.Custom -> CustomProfileBackgroundImage(
+                imageUrl = background.url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+            null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0f to gradientTop,
+                                    0.42f to gradientMid,
+                                    1f to PlayTorrioTheme.colors.Background
+                                )
+                            )
+                        )
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0f to halfFadeStrong,
+                                    0.45f to halfFadeSoft,
+                                    0.72f to Color.Transparent,
+                                    1f to Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSelectionMainContent(
+    screenTitle: String,
+    screenSubtitle: String,
+    screenHint: String,
+    isManagementMode: Boolean,
+    profiles: List<UserProfile>,
+    activeProfileId: Int,
+    canAddProfile: Boolean,
+    profilePinEnabled: Map<Int, Boolean>,
+    avatarImageUrlsById: Map<String, String>,
+    onProfileFocused: (UserProfile?) -> Unit,
+    onProfileSelected: (UserProfile) -> Unit,
+    onProfileLongPress: (UserProfile) -> Unit,
+    onAddProfileClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                horizontal = ProfileSelectionSpacing.ScreenPaddingHorizontal,
+                vertical = ProfileSelectionSpacing.ScreenPaddingVertical
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        MemberBrandWordmark(
+            height = ProfileSelectionSpacing.LogoHeight,
+            contentDescription = stringResource(R.string.cd_playtorrio_logo)
+        )
+
+        Spacer(modifier = Modifier.height(ProfileSelectionSpacing.LogoToHeading))
+
+        Text(
+            text = screenTitle,
+            color = PlayTorrioTheme.colors.TextPrimary,
+            fontSize = 44.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp
+        )
+
+        Spacer(modifier = Modifier.height(ProfileSelectionSpacing.HeadingToSubheading))
+
+        Text(
+            text = screenSubtitle,
+            color = PlayTorrioTheme.colors.TextSecondary,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Spacer(modifier = Modifier.weight(1f, fill = true))
+
+        ProfileGrid(
+            profiles = profiles,
+            activeProfileId = activeProfileId,
+            isManagementMode = isManagementMode,
+            canAddProfile = canAddProfile,
+            profilePinEnabled = profilePinEnabled,
+            avatarImageUrlsById = avatarImageUrlsById,
+            onProfileFocused = onProfileFocused,
+            onProfileSelected = onProfileSelected,
+            onProfileLongPress = onProfileLongPress,
+            onAddProfileClick = onAddProfileClick
+        )
+
+        Spacer(modifier = Modifier.weight(1f, fill = true))
+
+        Text(
+            text = screenHint,
+            color = PlayTorrioTheme.colors.TextTertiary.copy(alpha = 0.9f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun ProfileGrid(
+    profiles: List<UserProfile>,
+    activeProfileId: Int,
+    isManagementMode: Boolean,
+    canAddProfile: Boolean,
+    profilePinEnabled: Map<Int, Boolean>,
+    avatarImageUrlsById: Map<String, String>,
+    onProfileFocused: (UserProfile?) -> Unit,
+    onProfileSelected: (UserProfile) -> Unit,
+    onProfileLongPress: (UserProfile) -> Unit,
+    onAddProfileClick: () -> Unit
+) {
+    val totalItems = profiles.size + if (canAddProfile) 1 else 0
+    val initialFocusIndex = remember(profiles, activeProfileId, canAddProfile) {
+        profiles.indexOfFirst { it.id == activeProfileId }
+            .takeIf { it >= 0 }
+            ?: if (profiles.isNotEmpty()) 0 else if (canAddProfile) 0 else -1
+    }
+    val focusRequesters = remember(totalItems) {
+        List(totalItems) { FocusRequester() }
+    }
+
+    LaunchedEffect(totalItems, initialFocusIndex, isManagementMode) {
+        repeat(2) { withFrameNanos { } }
+        if (focusRequesters.isNotEmpty() && initialFocusIndex in focusRequesters.indices) {
+            runCatching { focusRequesters[initialFocusIndex].requestFocus() }
+        }
+    }
+
+    if (profiles.isEmpty() && !canAddProfile) {
+        Text(
+            text = stringResource(R.string.profile_selection_empty),
+            color = PlayTorrioTheme.colors.TextSecondary,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium
+        )
+    } else {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            val defaultGridWidth = profileGridWidth(
+                itemCount = totalItems,
+                cardWidth = ProfileSelectionSpacing.CardWidth,
+                itemGap = ProfileSelectionSpacing.GridItemGap
+            )
+            val fullSizeTightGridWidth = profileGridWidth(
+                itemCount = totalItems,
+                cardWidth = ProfileSelectionSpacing.CardWidth,
+                itemGap = ProfileSelectionSpacing.CompactGridItemGap
+            )
+            val useCompactCards = defaultGridWidth > maxWidth && fullSizeTightGridWidth > maxWidth
+            val gridItemGap = if (defaultGridWidth > maxWidth) {
+                ProfileSelectionSpacing.CompactGridItemGap
+            } else {
+                ProfileSelectionSpacing.GridItemGap
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(gridItemGap),
+                verticalAlignment = Alignment.Top
+            ) {
+                profiles.forEachIndexed { index, profile ->
+                    ProfileCard(
+                        profile = profile,
+                        avatarImageUrl = profile.avatarUrl?.takeIf { it.isNotBlank() }
+                            ?: profile.avatarId?.let(avatarImageUrlsById::get),
+                        focusRequester = focusRequesters[index],
+                        compact = useCompactCards,
+                        onFocused = { onProfileFocused(profile) },
+                        onClick = { onProfileSelected(profile) },
+                        onLongPress = { onProfileLongPress(profile) }
+                    )
+                }
+                if (canAddProfile) {
+                    AddProfileCard(
+                        focusRequester = focusRequesters[profiles.size],
+                        compact = useCompactCards,
+                        onFocused = { onProfileFocused(null) },
+                        onClick = onAddProfileClick
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun profileGridWidth(
+    itemCount: Int,
+    cardWidth: Dp,
+    itemGap: Dp
+): Dp {
+    if (itemCount <= 0) return 0.dp
+    val gapCount = itemCount - 1
+    return (cardWidth.value * itemCount + itemGap.value * gapCount).dp
+}
+
+@Composable
+private fun ProfileCard(
+    profile: UserProfile,
+    avatarImageUrl: String?,
+    focusRequester: FocusRequester,
+    compact: Boolean,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var longPressTriggered by remember { mutableStateOf(false) }
+    val longPressKeyTracker = rememberLongPressKeyTracker()
+    val interactionSource = remember { MutableInteractionSource() }
+    val focusProgress by animateFloatAsState(
+        targetValue = if (isFocused) 1f else 0f,
+        animationSpec = tween(durationMillis = 210, easing = ProfileCardFocusEasing),
+        label = "profileFocusProgress"
+    )
+    val itemScale = 1f + (0.04f * focusProgress)
+    val avatarSize = androidx.compose.ui.unit.lerp(
+        if (compact) ProfileSelectionSpacing.CompactAvatarSize else 96.dp,
+        if (compact) ProfileSelectionSpacing.CompactFocusedAvatarSize else 102.dp,
+        focusProgress
+    )
+    val outerAvatarSize = androidx.compose.ui.unit.lerp(
+        if (compact) ProfileSelectionSpacing.CompactOuterAvatarSize else 114.dp,
+        if (compact) ProfileSelectionSpacing.CompactFocusedOuterAvatarSize else 122.dp,
+        focusProgress
+    )
+    val ringWidth = androidx.compose.ui.unit.lerp(PlayTorrioTheme.spacing.hairline, 3.dp, focusProgress)
+    val nameColor = lerp(
+        PlayTorrioTheme.colors.TextSecondary,
+        PlayTorrioTheme.colors.TextPrimary,
+        focusProgress
+    )
+    val nameWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium
+
+    Column(
+        modifier = Modifier
+            .width(
+                if (compact) ProfileSelectionSpacing.CompactCardWidth
+                else ProfileSelectionSpacing.CardWidth
+            )
+            .graphicsLayer {
+                scaleX = itemScale
+                scaleY = itemScale
+            }
+            .focusRequester(focusRequester)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                    if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                        longPressTriggered = true
+                        onLongPress()
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                if (longPressKeyTracker.handle(native, ::isProfileSelectKey) {
+                        longPressTriggered = true
+                        onLongPress()
+                    }
+                ) {
+                    if (native.action == AndroidKeyEvent.ACTION_UP) {
+                        longPressTriggered = false
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                if (native.action == AndroidKeyEvent.ACTION_UP &&
+                    longPressTriggered &&
+                    (isProfileSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU)
+                ) {
+                    longPressTriggered = false
+                    return@onPreviewKeyEvent true
+                }
+                false
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(
+                horizontal = ProfileSelectionSpacing.CardPaddingHorizontal,
+                vertical = ProfileSelectionSpacing.CardPaddingVertical
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(
+                if (compact) ProfileSelectionSpacing.CompactAvatarContainer
+                else ProfileSelectionSpacing.AvatarContainer
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(outerAvatarSize)
+                    .clip(CircleShape)
+                    .border(
+                        width = PlayTorrioTheme.spacing.hairline,
+                        color = PlayTorrioTheme.colors.Border.copy(alpha = 0.75f),
+                        shape = CircleShape
+                    )
+                    .border(
+                        border = PlayTorrioTheme.focusRing.border(ringWidth, focusProgress),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                ProfileAvatarCircle(
+                    name = profile.name,
+                    colorHex = profile.avatarColorHex,
+                    size = avatarSize,
+                    avatarImageUrl = avatarImageUrl
+                )
+            }
+
+            if (profile.isPrimary) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = PlayTorrioTheme.spacing.xxs, y = PlayTorrioTheme.spacing.hairline)
+                        .size(if (compact) 22.dp else 26.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFB300), CircleShape)
+                        .border(
+                            width = PlayTorrioTheme.spacing.xxs,
+                            color = PlayTorrioTheme.colors.Background,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "\u2605",
+                        color = Color.White,
+                        fontSize = if (compact) 12.sp else 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(
+                if (compact) ProfileSelectionSpacing.CompactAvatarToName
+                else ProfileSelectionSpacing.AvatarToName
+            )
+        )
+
+        Text(
+            text = profile.name,
+            color = nameColor,
+            fontSize = if (compact) 15.sp else 17.sp,
+            fontWeight = nameWeight,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(ProfileSelectionSpacing.NameToMeta))
+
+        Box(
+            modifier = Modifier.height(ProfileSelectionSpacing.MetaSlotHeight),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            if (profile.isPrimary) {
+                Text(
+                    text = stringResource(R.string.profile_selection_primary_badge),
+                    color = Color(0xFFFFB300),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.8.sp
+                )
+            }
+        }
+    }
+}
+
+private fun parseProfileColor(colorHex: String): Color {
+    return runCatching { Color(android.graphics.Color.parseColor(colorHex)) }
+        .getOrDefault(Color(0xFF1E88E5))
+}
+
+@Composable
+private fun AddProfileCard(
+    focusRequester: FocusRequester,
+    compact: Boolean,
+    onFocused: () -> Unit,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focusProgress by animateFloatAsState(
+        targetValue = if (isFocused) 1f else 0f,
+        animationSpec = tween(durationMillis = 210, easing = ProfileCardFocusEasing),
+        label = "addFocusProgress"
+    )
+    val itemScale = 1f + (0.04f * focusProgress)
+    val outerAvatarSize = androidx.compose.ui.unit.lerp(
+        if (compact) ProfileSelectionSpacing.CompactOuterAvatarSize else 114.dp,
+        if (compact) ProfileSelectionSpacing.CompactFocusedOuterAvatarSize else 122.dp,
+        focusProgress
+    )
+    val ringWidth = androidx.compose.ui.unit.lerp(PlayTorrioTheme.spacing.hairline, 3.dp, focusProgress)
+    val nameColor = lerp(
+        PlayTorrioTheme.colors.TextTertiary,
+        PlayTorrioTheme.colors.TextPrimary,
+        focusProgress
+    )
+    val plusColor = lerp(
+        PlayTorrioTheme.colors.TextTertiary,
+        Color.White,
+        focusProgress
+    )
+    val addBackgroundColor = lerp(
+        Color.White.copy(alpha = 0.06f),
+        Color.White.copy(alpha = 0.12f),
+        focusProgress
+    )
+
+    Column(
+        modifier = Modifier
+            .width(
+                if (compact) ProfileSelectionSpacing.CompactCardWidth
+                else ProfileSelectionSpacing.CardWidth
+            )
+            .graphicsLayer {
+                scaleX = itemScale
+                scaleY = itemScale
+            }
+            .focusRequester(focusRequester)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(
+                horizontal = ProfileSelectionSpacing.CardPaddingHorizontal,
+                vertical = ProfileSelectionSpacing.CardPaddingVertical
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(
+                if (compact) ProfileSelectionSpacing.CompactAvatarContainer
+                else ProfileSelectionSpacing.AvatarContainer
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(outerAvatarSize)
+                    .clip(CircleShape)
+                    .border(
+                        width = PlayTorrioTheme.spacing.hairline,
+                        color = PlayTorrioTheme.colors.Border.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    )
+                    .border(
+                        border = PlayTorrioTheme.focusRing.border(ringWidth, focusProgress),
+                        shape = CircleShape
+                    )
+                    .background(addBackgroundColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier.size(if (compact) 30.dp else 34.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(if (compact) 22.dp else 26.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(plusColor)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(if (compact) 22.dp else 26.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(plusColor)
+                    )
+                }
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(
+                if (compact) ProfileSelectionSpacing.CompactAvatarToName
+                else ProfileSelectionSpacing.AvatarToName
+            )
+        )
+
+        Text(
+            text = stringResource(R.string.profile_add_new),
+            color = nameColor,
+            fontSize = if (compact) 15.sp else 17.sp,
+            fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(ProfileSelectionSpacing.NameToMeta))
+        Box(modifier = Modifier.height(ProfileSelectionSpacing.MetaSlotHeight))
+    }
+}
+
+@Composable
+private fun CreateProfileOverlay(
+    avatarCatalog: List<AvatarCatalogItem>,
+    isCreating: Boolean,
+    onDismiss: () -> Unit,
+    onCreateProfile: (name: String, colorHex: String, avatarId: String?) -> Unit
+) {
+    BackHandler(onBack = onDismiss)
+
+    var profileName by remember { mutableStateOf("") }
+    var selectedColorHex by remember { mutableStateOf("#1E88E5") }
+    var selectedAvatarId by remember { mutableStateOf<String?>(null) }
+    var focusedAvatarName by remember { mutableStateOf<String?>(null) }
+    val selectedAvatar = remember(avatarCatalog, selectedAvatarId) {
+        avatarCatalog.find { it.id == selectedAvatarId }
+    }
+    val nameFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        repeat(2) { withFrameNanos { } }
+        runCatching { nameFocusRequester.requestFocus() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.85f))
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_UP &&
+                    native.keyCode == AndroidKeyEvent.KEYCODE_BACK
+                ) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = ProfileSelectionSpacing.EditorPanelMaxWidth)
+                .clip(RoundedCornerShape(20.dp))
+                .background(PlayTorrioTheme.colors.BackgroundElevated)
+                .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(20.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {} // prevent dismiss when clicking the panel
+                )
+                .padding(PlayTorrioTheme.spacing.xxl),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header row: title left, create button right
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = PlayTorrioTheme.spacing.xl),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.profile_create_title),
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                OverlayButton(
+                    text = if (isCreating) stringResource(R.string.profile_creating)
+                           else stringResource(R.string.profile_create_btn),
+                    isPrimary = true,
+                    enabled = profileName.isNotBlank() && !isCreating,
+                    onClick = {
+                        onCreateProfile(profileName, selectedColorHex, selectedAvatarId)
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 360.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(ProfileSelectionSpacing.EditorPreviewWidth)
+                        .padding(start = PlayTorrioTheme.spacing.xl, top = PlayTorrioTheme.spacing.xl + ProfileSelectionSpacing.EditorPreviewTopOffset, end = PlayTorrioTheme.spacing.xl, bottom = PlayTorrioTheme.spacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ProfileAvatarCircle(
+                        name = profileName.ifEmpty { "?" },
+                        colorHex = selectedColorHex,
+                        size = ProfileSelectionSpacing.EditorPreviewAvatarSize,
+                        avatarImageUrl = selectedAvatar?.imageUrl
+                    )
+
+                    Text(
+                        text = profileName.ifBlank { stringResource(R.string.profile_name_placeholder) },
+                        color = if (profileName.isBlank()) PlayTorrioTheme.colors.TextSecondary else PlayTorrioTheme.colors.TextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    ProfileNameField(
+                        value = profileName,
+                        onValueChange = { if (it.length <= 20) profileName = it },
+                        focusRequester = nameFocusRequester
+                    )
+
+                    OverlayButton(
+                        text = stringResource(R.string.profile_cancel),
+                        isPrimary = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onDismiss
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(ProfileSelectionSpacing.EditorDividerSpacing))
+                EditorSectionDivider()
+                Spacer(modifier = Modifier.width(ProfileSelectionSpacing.EditorDividerSpacing))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+                ) {
+                    Text(
+                        text = stringResource(R.string.profile_choose_avatar),
+                        modifier = Modifier.fillMaxWidth(),
+                        color = PlayTorrioTheme.colors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = stringResource(R.string.profile_custom_avatar_web_panel_note),
+                        modifier = Modifier.fillMaxWidth(),
+                        color = PlayTorrioTheme.colors.TextTertiary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+
+                    if (avatarCatalog.isNotEmpty()) {
+                        AvatarPickerGrid(
+                            avatars = avatarCatalog,
+                            selectedAvatarId = selectedAvatarId,
+                            onAvatarSelected = { avatar ->
+                                if (selectedAvatarId == avatar.id) {
+                                    selectedAvatarId = null
+                                    selectedColorHex = "#1E88E5"
+                                } else {
+                                    selectedAvatarId = avatar.id
+                                    avatar.bgColor?.let { selectedColorHex = it }
+                                }
+                            },
+                            onAvatarFocused = { avatar ->
+                                focusedAvatarName = avatar?.displayName
+                            },
+                            modifier = Modifier.heightIn(max = 320.dp)
+                        )
+
+                        Text(
+                            text = focusedAvatarName ?: stringResource(R.string.profile_avatar_focus_hint),
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (focusedAvatarName != null) PlayTorrioTheme.colors.TextPrimary else PlayTorrioTheme.colors.TextTertiary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(PlayTorrioTheme.colors.BackgroundCard)
+                                .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(18.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.profile_choose_avatar),
+                                color = PlayTorrioTheme.colors.TextTertiary,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+        }
+    }
+}
+
+private fun isProfileSelectKey(keyCode: Int): Boolean {
+    return keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+}
+
+private fun keyCodeToDigit(keyCode: Int): Char? {
+    return when (keyCode) {
+        AndroidKeyEvent.KEYCODE_0,
+        AndroidKeyEvent.KEYCODE_NUMPAD_0 -> '0'
+        AndroidKeyEvent.KEYCODE_1,
+        AndroidKeyEvent.KEYCODE_NUMPAD_1 -> '1'
+        AndroidKeyEvent.KEYCODE_2,
+        AndroidKeyEvent.KEYCODE_NUMPAD_2 -> '2'
+        AndroidKeyEvent.KEYCODE_3,
+        AndroidKeyEvent.KEYCODE_NUMPAD_3 -> '3'
+        AndroidKeyEvent.KEYCODE_4,
+        AndroidKeyEvent.KEYCODE_NUMPAD_4 -> '4'
+        AndroidKeyEvent.KEYCODE_5,
+        AndroidKeyEvent.KEYCODE_NUMPAD_5 -> '5'
+        AndroidKeyEvent.KEYCODE_6,
+        AndroidKeyEvent.KEYCODE_NUMPAD_6 -> '6'
+        AndroidKeyEvent.KEYCODE_7,
+        AndroidKeyEvent.KEYCODE_NUMPAD_7 -> '7'
+        AndroidKeyEvent.KEYCODE_8,
+        AndroidKeyEvent.KEYCODE_NUMPAD_8 -> '8'
+        AndroidKeyEvent.KEYCODE_9,
+        AndroidKeyEvent.KEYCODE_NUMPAD_9 -> '9'
+        else -> null
+    }
+}
+
+@Composable
+private fun rememberKeyboardVisibilityState(): KeyboardVisibilityState {
+    val view = LocalView.current
+    var state by remember(view) { mutableStateOf(KeyboardVisibilityState(isVisible = false, bottomPx = 0)) }
+
+    DisposableEffect(view) {
+        val rect = Rect()
+        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            view.getWindowVisibleDisplayFrame(rect)
+            val rootHeight = view.rootView.height
+            val obscuredHeight = (rootHeight - rect.height()).coerceAtLeast(0)
+            val rootInsets = ViewCompat.getRootWindowInsets(view)
+            val imeInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.ime())
+            val imeVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            val threshold = (rootHeight * 0.12f).toInt()
+            val keyboardVisible = imeVisible || obscuredHeight > threshold
+            val bottomPx = when {
+                imeVisible && imeInsets != null -> imeInsets.bottom
+                keyboardVisible -> obscuredHeight
+                else -> 0
+            }
+            state = KeyboardVisibilityState(
+                isVisible = keyboardVisible,
+                bottomPx = bottomPx
+            )
+        }
+
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        listener.onGlobalLayout()
+        onDispose {
+            view.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+        }
+    }
+
+    return state
+}
+
+@Composable
+private fun EditProfileOverlay(
+    profile: UserProfile,
+    avatarCatalog: List<AvatarCatalogItem>,
+    profileBackgroundCatalog: List<ProfileBackgroundCatalogItem>,
+    hasProfileBackgroundAccess: Boolean,
+    isSaving: Boolean,
+    avatarUrlResolver: (String?) -> String?,
+    onDismiss: () -> Unit,
+    onSaveProfile: (UserProfile) -> Unit
+) {
+    BackHandler(onBack = onDismiss)
+
+    var profileName by remember { mutableStateOf(profile.name) }
+    var selectedColorHex by remember { mutableStateOf(profile.avatarColorHex) }
+    var selectedAvatarId by remember(profile.id, profile.avatarId) {
+        mutableStateOf(profile.avatarId)
+    }
+    var selectedBackgroundId by remember(profile.id, profile.profileBackgroundId) {
+        mutableStateOf(profile.profileBackgroundId)
+    }
+    var selectedBackgroundUrl by remember(profile.id, profile.profileBackgroundUrl) {
+        mutableStateOf(profile.profileBackgroundUrl?.takeIf { it.isNotBlank() })
+    }
+    var selectedEditorTab by remember(profile.id) { mutableStateOf(ProfileEditorTab.Avatar) }
+    var focusedAvatarName by remember { mutableStateOf<String?>(null) }
+    val selectedAvatar = remember(avatarCatalog, selectedAvatarId) {
+        avatarCatalog.find { it.id == selectedAvatarId }
+    }
+    val hasChangedAvatarSelection = selectedAvatarId != profile.avatarId
+    val previewAvatarImageUrl = when {
+        selectedAvatar != null -> selectedAvatar.imageUrl
+        !hasChangedAvatarSelection -> profile.avatarUrl?.takeIf { it.isNotBlank() }
+            ?: avatarUrlResolver(profile.avatarId)
+        else -> null
+    }
+    val nameFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        repeat(2) { withFrameNanos { } }
+        runCatching { nameFocusRequester.requestFocus() }
+    }
+
+    LaunchedEffect(hasProfileBackgroundAccess) {
+        if (!hasProfileBackgroundAccess) selectedEditorTab = ProfileEditorTab.Avatar
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.85f))
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action == AndroidKeyEvent.ACTION_UP &&
+                    native.keyCode == AndroidKeyEvent.KEYCODE_BACK
+                ) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = ProfileSelectionSpacing.EditorPanelMaxWidth)
+                .clip(RoundedCornerShape(20.dp))
+                .background(PlayTorrioTheme.colors.BackgroundElevated)
+                .border(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border, RoundedCornerShape(20.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+                .padding(PlayTorrioTheme.spacing.xxl),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header row: title left, save button right
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = PlayTorrioTheme.spacing.xl),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xxs)) {
+                    Text(
+                        text = stringResource(R.string.profile_edit_header),
+                        color = PlayTorrioTheme.colors.TextSecondary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = profile.name,
+                        color = Color.White,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                OverlayButton(
+                    text = if (isSaving) stringResource(R.string.profile_saving)
+                           else stringResource(R.string.profile_save),
+                    isPrimary = true,
+                    enabled = profileName.isNotBlank() && !isSaving,
+                    onClick = {
+                        onSaveProfile(
+                            profile.copy(
+                                name = profileName,
+                                avatarColorHex = selectedColorHex,
+                                avatarId = selectedAvatarId,
+                                avatarUrl = if (hasChangedAvatarSelection) null else profile.avatarUrl,
+                                profileBackgroundId = selectedBackgroundId,
+                                profileBackgroundUrl = selectedBackgroundUrl
+                            )
+                        )
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 360.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(ProfileSelectionSpacing.EditorPreviewWidth)
+                        .padding(start = PlayTorrioTheme.spacing.xl, top = PlayTorrioTheme.spacing.xl + ProfileSelectionSpacing.EditorPreviewTopOffset, end = PlayTorrioTheme.spacing.xl, bottom = PlayTorrioTheme.spacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ProfileAvatarCircle(
+                        name = profileName.ifEmpty { "?" },
+                        colorHex = selectedColorHex,
+                        size = ProfileSelectionSpacing.EditorPreviewAvatarSize,
+                        avatarImageUrl = previewAvatarImageUrl
+                    )
+
+                    Text(
+                        text = profileName.ifBlank { stringResource(R.string.profile_name_placeholder) },
+                        color = if (profileName.isBlank()) PlayTorrioTheme.colors.TextSecondary else PlayTorrioTheme.colors.TextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    ProfileNameField(
+                        value = profileName,
+                        onValueChange = { if (it.length <= 20) profileName = it },
+                        focusRequester = nameFocusRequester
+                    )
+
+                    OverlayButton(
+                        text = stringResource(R.string.profile_cancel),
+                        isPrimary = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onDismiss
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(ProfileSelectionSpacing.EditorDividerSpacing))
+                EditorSectionDivider()
+                Spacer(modifier = Modifier.width(ProfileSelectionSpacing.EditorDividerSpacing))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+                ) {
+                    ProfileEditorTabs(
+                        selectedTab = selectedEditorTab,
+                        showBackgroundTab = hasProfileBackgroundAccess,
+                        onTabSelected = { selectedEditorTab = it },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+
+                    when (selectedEditorTab) {
+                        ProfileEditorTab.Avatar -> {
+                            Text(
+                                text = stringResource(R.string.profile_choose_avatar),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = PlayTorrioTheme.colors.TextTertiary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = stringResource(R.string.profile_custom_avatar_web_panel_note),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = PlayTorrioTheme.colors.TextTertiary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+
+                            if (avatarCatalog.isNotEmpty()) {
+                                AvatarPickerGrid(
+                                    avatars = avatarCatalog,
+                                    selectedAvatarId = selectedAvatarId,
+                                    onAvatarSelected = { avatar ->
+                                        if (selectedAvatarId == avatar.id) {
+                                            selectedAvatarId = null
+                                            selectedColorHex = profile.avatarColorHex
+                                        } else {
+                                            selectedAvatarId = avatar.id
+                                            avatar.bgColor?.let { selectedColorHex = it }
+                                        }
+                                    },
+                                    onAvatarFocused = { avatar ->
+                                        focusedAvatarName = avatar?.displayName
+                                    },
+                                    modifier = Modifier.heightIn(max = 280.dp)
+                                )
+
+                                Text(
+                                    text = focusedAvatarName ?: stringResource(R.string.profile_avatar_focus_hint),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = if (focusedAvatarName != null) PlayTorrioTheme.colors.TextPrimary else PlayTorrioTheme.colors.TextTertiary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(160.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(PlayTorrioTheme.colors.BackgroundCard)
+                                        .border(
+                                            PlayTorrioTheme.spacing.hairline,
+                                            PlayTorrioTheme.colors.Border,
+                                            RoundedCornerShape(18.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.profile_choose_avatar),
+                                        color = PlayTorrioTheme.colors.TextTertiary,
+                                        fontSize = 15.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        ProfileEditorTab.Background -> {
+                            Text(
+                                text = stringResource(R.string.profile_choose_background),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = PlayTorrioTheme.colors.TextSecondary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = stringResource(R.string.profile_background_member_note),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = PlayTorrioTheme.colors.TextTertiary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+
+                            ProfileBackgroundPicker(
+                                backgrounds = profileBackgroundCatalog,
+                                selectedBackgroundId = selectedBackgroundId,
+                                customBackgroundUrl = profile.profileBackgroundUrl,
+                                selectedBackgroundUrl = selectedBackgroundUrl,
+                                standardBackgroundColor = parseProfileColor(selectedColorHex),
+                                onStandardBackgroundSelected = {
+                                    selectedBackgroundId = null
+                                    selectedBackgroundUrl = null
+                                },
+                                onBackgroundSelected = { background ->
+                                    selectedBackgroundId = if (
+                                        selectedBackgroundUrl == null &&
+                                        selectedBackgroundId == background.id
+                                    ) {
+                                        null
+                                    } else {
+                                        background.id
+                                    }
+                                    selectedBackgroundUrl = null
+                                },
+                                onCustomBackgroundSelected = {
+                                    val customUrl = profile.profileBackgroundUrl
+                                        ?.takeIf { it.isNotBlank() }
+                                    if (
+                                        selectedBackgroundId == null &&
+                                        selectedBackgroundUrl == customUrl
+                                    ) {
+                                        selectedBackgroundUrl = null
+                                    } else {
+                                        selectedBackgroundId = null
+                                        selectedBackgroundUrl = customUrl
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.xl))
+        }
+    }
+}
+
+@Composable
+private fun ProfilePinOverlay(
+    state: ProfilePinOverlayState,
+    isWorking: Boolean,
+    errorMessage: String?,
+    onClearError: () -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    val density = LocalDensity.current
+    val keyboardState = rememberKeyboardVisibilityState()
+    val focusManager = LocalFocusManager.current
+    val focusRequester = remember(state) { FocusRequester() }
+    val isSingleEntryMode = state !is ProfilePinOverlayState.Set
+    var pin by remember(state) { mutableStateOf("") }
+    var draftPin by remember(state) { mutableStateOf<String?>(null) }
+    var entryStage by remember(state) { mutableStateOf(ProfilePinEntryStage.Create) }
+    var internalErrorMessage by remember(state) { mutableStateOf<String?>(null) }
+    var isInputFocused by remember(state) { mutableStateOf(false) }
+    var keyboardWasVisible by remember(state) { mutableStateOf(false) }
+    val shakeOffset = remember(state) { androidx.compose.animation.core.Animatable(0f) }
+    val cursorAlpha by rememberInfiniteTransition(label = "pinCursor").animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(520),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pinCursorAlpha"
+    )
+    val resolvedErrorMessage = if (isSingleEntryMode) errorMessage else internalErrorMessage ?: errorMessage
+    val isErrorState = !resolvedErrorMessage.isNullOrEmpty()
+    val mismatchMessage = stringResource(R.string.profile_pin_overlay_mismatch)
+    val shouldUseCompactLayout = keyboardState.isVisible
+    val headerFontSize by animateFloatAsState(
+        targetValue = if (shouldUseCompactLayout) 28f else 42f,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinHeaderFontSize"
+    )
+    val headerLineHeight by animateFloatAsState(
+        targetValue = if (shouldUseCompactLayout) 34f else 48f,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinHeaderLineHeight"
+    )
+    val supportFontSize by animateFloatAsState(
+        targetValue = if (shouldUseCompactLayout) 16f else 18f,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinSupportFontSize"
+    )
+    val topPadding by animateDpAsState(
+        targetValue = if (shouldUseCompactLayout) 40.dp else PlayTorrioTheme.spacing.none,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinOverlayTopPadding"
+    )
+    val headingGap by animateDpAsState(
+        targetValue = if (shouldUseCompactLayout) 10.dp else ProfileSelectionSpacing.PinKickerToHeading,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinHeadingGap"
+    )
+    val boxesGap by animateDpAsState(
+        targetValue = if (shouldUseCompactLayout) PlayTorrioTheme.spacing.xl else ProfileSelectionSpacing.PinHeadingToBoxes,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinBoxesGap"
+    )
+    val supportGap by animateDpAsState(
+        targetValue = if (shouldUseCompactLayout) 18.dp else ProfileSelectionSpacing.PinBoxesToSupport,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinSupportGap"
+    )
+    val backHintGap by animateDpAsState(
+        targetValue = if (shouldUseCompactLayout) 10.dp else 14.dp,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinBackHintGap"
+    )
+    val contentBottomPadding = if (keyboardState.isVisible) {
+        with(density) { keyboardState.bottomPx.toDp() } + 28.dp
+    } else {
+        28.dp
+    }
+
+    BackHandler(enabled = isInputFocused && keyboardState.isVisible) {
+        focusManager.clearFocus(force = true)
+    }
+
+    BackHandler(onBack = onDismiss)
+
+    suspend fun playErrorAnimation() {
+        shakeOffset.snapTo(0f)
+        listOf(-22f, 18f, -14f, 10f, -6f, 0f).forEach { offset ->
+            shakeOffset.animateTo(offset, animationSpec = tween(42))
+        }
+    }
+
+    LaunchedEffect(state) {
+        repeat(2) { withFrameNanos { } }
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    LaunchedEffect(keyboardState.isVisible, isInputFocused) {
+        if (keyboardState.isVisible) {
+            keyboardWasVisible = true
+        } else if (keyboardWasVisible && isInputFocused) {
+            keyboardWasVisible = false
+            focusManager.clearFocus(force = true)
+        }
+    }
+
+    LaunchedEffect(errorMessage) {
+        if (!errorMessage.isNullOrEmpty()) {
+            pin = ""
+            playErrorAnimation()
+        }
+    }
+
+    LaunchedEffect(pin, entryStage, isWorking) {
+        if (pin.length != ProfilePinLength || isWorking) return@LaunchedEffect
+        // Clear pin before dispatching so the effect can't re-trigger with the
+        // same input after isWorking flips back to false at the end of the RPC.
+        if (isSingleEntryMode) {
+            val submitted = pin
+            pin = ""
+            onSubmit(submitted)
+        } else {
+            if (entryStage == ProfilePinEntryStage.Create) {
+                draftPin = pin
+                pin = ""
+                internalErrorMessage = null
+                entryStage = ProfilePinEntryStage.Confirm
+            } else if (draftPin == pin) {
+                val submitted = pin
+                pin = ""
+                onSubmit(submitted)
+            } else {
+                pin = ""
+                draftPin = null
+                entryStage = ProfilePinEntryStage.Create
+                internalErrorMessage = mismatchMessage
+                playErrorAnimation()
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { runCatching { focusRequester.requestFocus() } }
+            )
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (native.action != AndroidKeyEvent.ACTION_DOWN) {
+                    return@onPreviewKeyEvent false
+                }
+                when (native.keyCode) {
+                    AndroidKeyEvent.KEYCODE_BACK,
+                    AndroidKeyEvent.KEYCODE_ESCAPE -> {
+                        if (isInputFocused) {
+                            focusManager.clearFocus(force = true)
+                        } else {
+                            onDismiss()
+                        }
+                        true
+                    }
+
+                    AndroidKeyEvent.KEYCODE_DEL,
+                    AndroidKeyEvent.KEYCODE_CLEAR -> {
+                        if (!isWorking && pin.isNotEmpty()) {
+                            pin = pin.dropLast(1)
+                            if (!errorMessage.isNullOrEmpty()) onClearError()
+                            if (!isSingleEntryMode) internalErrorMessage = null
+                        }
+                        true
+                    }
+
+                    else -> {
+                        val digit = keyCodeToDigit(native.keyCode)
+                        if (digit != null && !isWorking && pin.length < ProfilePinLength) {
+                            pin += digit
+                            if (!errorMessage.isNullOrEmpty()) onClearError()
+                            if (!isSingleEntryMode) internalErrorMessage = null
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        val headingText = when {
+            state is ProfilePinOverlayState.Unlock -> stringResource(R.string.profile_pin_overlay_unlock_heading, state.profile.name)
+            state is ProfilePinOverlayState.VerifyCurrentForChange -> stringResource(R.string.profile_pin_overlay_change_verify_heading, state.profile.name)
+            state is ProfilePinOverlayState.VerifyCurrentForRemove -> stringResource(R.string.profile_pin_overlay_remove_verify_heading, state.profile.name)
+            state is ProfilePinOverlayState.VerifyCurrentForDelete -> stringResource(R.string.profile_pin_overlay_delete_verify_heading, state.profile.name)
+            entryStage == ProfilePinEntryStage.Confirm -> stringResource(R.string.profile_pin_overlay_confirm_heading)
+            else -> stringResource(R.string.profile_pin_overlay_set_heading, state.profile.name)
+        }
+        val supportText = when {
+            !resolvedErrorMessage.isNullOrEmpty() -> resolvedErrorMessage
+            isWorking && isSingleEntryMode -> stringResource(R.string.profile_pin_verifying)
+            isWorking -> stringResource(R.string.action_saving)
+            state is ProfilePinOverlayState.Unlock -> stringResource(R.string.profile_pin_overlay_unlock_support)
+            state is ProfilePinOverlayState.VerifyCurrentForChange -> stringResource(R.string.profile_pin_overlay_change_verify_support)
+            state is ProfilePinOverlayState.VerifyCurrentForRemove -> stringResource(R.string.profile_pin_overlay_remove_verify_support)
+            state is ProfilePinOverlayState.VerifyCurrentForDelete -> stringResource(R.string.profile_pin_overlay_delete_verify_support)
+            entryStage == ProfilePinEntryStage.Confirm -> stringResource(R.string.profile_pin_overlay_confirm_support)
+            else -> stringResource(R.string.profile_pin_overlay_set_support)
+        }
+        val supportTextColor = if (isErrorState) {
+            Color(0xFFFF8E8E)
+        } else {
+            PlayTorrioTheme.colors.TextSecondary
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = ProfileSelectionSpacing.ScreenPaddingHorizontal),
+            verticalArrangement = if (shouldUseCompactLayout) Arrangement.Top else Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(topPadding))
+
+            Spacer(modifier = Modifier.height(headingGap))
+
+            Text(
+                text = headingText,
+                color = PlayTorrioTheme.colors.TextPrimary,
+                fontSize = headerFontSize.sp,
+                lineHeight = headerLineHeight.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(boxesGap))
+
+            ProfilePinBoxes(
+                value = pin,
+                isWorking = isWorking,
+                isErrorState = isErrorState,
+                isInputFocused = isInputFocused,
+                cursorAlpha = cursorAlpha,
+                compactMode = shouldUseCompactLayout,
+                modifier = Modifier.graphicsLayer {
+                    translationX = shakeOffset.value
+                }
+            )
+
+            Spacer(modifier = Modifier.height(supportGap))
+
+            Text(
+                text = supportText,
+                modifier = Modifier.widthIn(max = ProfileSelectionSpacing.PinSupportMaxWidth),
+                color = supportTextColor,
+                fontSize = supportFontSize.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                lineHeight = 24.sp
+            )
+
+            if (state is ProfilePinOverlayState.Unlock ||
+                state is ProfilePinOverlayState.VerifyCurrentForChange ||
+                state is ProfilePinOverlayState.VerifyCurrentForRemove ||
+                state is ProfilePinOverlayState.VerifyCurrentForDelete
+            ) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = stringResource(R.string.profile_pin_overlay_forgot_hint),
+                    modifier = Modifier.widthIn(max = ProfileSelectionSpacing.PinSupportMaxWidth),
+                    color = PlayTorrioTheme.colors.TextTertiary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(backHintGap))
+
+            Text(
+                text = stringResource(R.string.profile_pin_overlay_back_hint),
+                color = PlayTorrioTheme.colors.TextTertiary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            Spacer(modifier = Modifier.height(contentBottomPadding))
+        }
+
+        BasicTextField(
+            value = pin,
+            onValueChange = { value ->
+                if (!isWorking) {
+                    pin = value.filter(Char::isDigit).take(ProfilePinLength)
+                    if (!errorMessage.isNullOrEmpty()) onClearError()
+                    if (!isSingleEntryMode) internalErrorMessage = null
+                }
+            },
+            modifier = Modifier
+                .size(PlayTorrioTheme.spacing.hairline)
+                .graphicsLayer { alpha = 0f }
+                .focusRequester(focusRequester)
+                .onFocusChanged { state ->
+                    isInputFocused = state.isFocused
+                },
+            singleLine = true,
+            textStyle = TextStyle(color = Color.Transparent),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Done
+            ),
+            cursorBrush = SolidColor(Color.Transparent)
+        )
+    }
+}
+
+@Composable
+private fun ProfilePinBoxes(
+    value: String,
+    isWorking: Boolean,
+    isErrorState: Boolean,
+    isInputFocused: Boolean,
+    cursorAlpha: Float,
+    compactMode: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val boxSize by animateDpAsState(
+        targetValue = if (compactMode) 90.dp else ProfileSelectionSpacing.PinBoxSize,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinBoxSize"
+    )
+    val boxGap by animateDpAsState(
+        targetValue = if (compactMode) 10.dp else ProfileSelectionSpacing.PinBoxGap,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinBoxGap"
+    )
+    val activeCursorHeight by animateDpAsState(
+        targetValue = if (compactMode) 28.dp else 40.dp,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinCursorHeight"
+    )
+    val dotSize by animateDpAsState(
+        targetValue = if (compactMode) PlayTorrioTheme.spacing.md else PlayTorrioTheme.spacing.lg,
+        animationSpec = tween(PlayTorrioMotion.tokens.durations.fast),
+        label = "pinDotSize"
+    )
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(boxGap),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(ProfilePinLength) { index ->
+            val isFilled = index < value.length
+            val isActive = index == value.length.coerceAtMost(ProfilePinLength - 1) &&
+                value.length < ProfilePinLength &&
+                isInputFocused &&
+                !isWorking
+            val borderColor by animateColorAsState(
+                targetValue = when {
+                    isErrorState -> Color(0xFFE35D5D)
+                    isFilled -> Color.White.copy(alpha = 0.92f)
+                    isActive -> Color.White
+                    else -> Color.White.copy(alpha = 0.72f)
+                },
+                animationSpec = tween(140),
+                label = "pinBoxBorder"
+            )
+            val backgroundColor by animateColorAsState(
+                targetValue = when {
+                    isErrorState -> Color(0xFF311818).copy(alpha = 0.76f)
+                    isFilled -> Color.White.copy(alpha = 0.07f)
+                    isActive -> Color.White.copy(alpha = 0.04f)
+                    else -> Color.Transparent
+                },
+                animationSpec = tween(140),
+                label = "pinBoxBackground"
+            )
+            val borderWidth by animateDpAsState(
+                targetValue = if (isActive || isErrorState) PlayTorrioTheme.spacing.xxs else PlayTorrioTheme.spacing.hairline,
+                animationSpec = tween(140),
+                label = "pinBoxBorderWidth"
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(boxSize)
+                    .clip(RoundedCornerShape(PlayTorrioTheme.radii.xxs))
+                    .background(backgroundColor)
+                    .border(
+                        border = if (isActive && !isErrorState) {
+                            PlayTorrioTheme.focusRing.border(borderWidth)
+                        } else {
+                            BorderStroke(borderWidth, borderColor)
+                        },
+                        shape = RoundedCornerShape(PlayTorrioTheme.radii.xxs)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    isFilled -> {
+                        Box(
+                            modifier = Modifier
+                                .size(dotSize)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                        )
+                    }
+
+                    isActive -> {
+                        Box(
+                            modifier = Modifier
+                                .width(PlayTorrioTheme.spacing.xxs)
+                                .height(activeCursorHeight)
+                                .background(Color.White.copy(alpha = cursorAlpha))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorSectionDivider() {
+    Box(
+        modifier = Modifier
+            .padding(top = ProfileSelectionSpacing.EditorPreviewTopOffset)
+            .width(PlayTorrioTheme.spacing.hairline)
+            .height(ProfileSelectionSpacing.EditorDividerHeight)
+            .background(PlayTorrioTheme.colors.Border.copy(alpha = 0.9f))
+    )
+}
+
+@Composable
+private fun ProfileNameField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isFocused) PlayTorrioTheme.colors.FocusBackground else Color.White.copy(alpha = 0.05f),
+        animationSpec = tween(120),
+        label = "profileNameBackground"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (isFocused) PlayTorrioTheme.spacing.xxs else PlayTorrioTheme.spacing.hairline,
+        animationSpec = tween(120),
+        label = "profileNameBorderWidth"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ProfileSelectionSpacing.EditorFieldRadius))
+            .background(backgroundColor)
+            .border(
+                border = if (isFocused) {
+                    PlayTorrioTheme.focusRing.border(borderWidth)
+                } else {
+                    BorderStroke(borderWidth, PlayTorrioTheme.colors.Border)
+                },
+                shape = RoundedCornerShape(ProfileSelectionSpacing.EditorFieldRadius)
+            )
+            .padding(horizontal = PlayTorrioTheme.spacing.lg, vertical = 14.dp)
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                text = stringResource(R.string.profile_name_placeholder),
+                color = PlayTorrioTheme.colors.TextTertiary,
+                fontSize = 16.sp
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .onFocusChanged { isFocused = it.isFocused },
+            textStyle = TextStyle(
+                color = Color.White,
+                fontSize = 16.sp
+            ),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    focusManager.moveFocus(FocusDirection.Down)
+                }
+            ),
+            cursorBrush = PlayTorrioTheme.focusRing.brush()
+        )
+    }
+}
+
+@Composable
+private fun OverlayButton(
+    text: String,
+    isPrimary: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> Color.White.copy(alpha = 0.04f)
+            isPrimary && isFocused -> PlayTorrioTheme.colors.FocusBackground
+            isPrimary -> PlayTorrioTheme.colors.Secondary
+            isFocused -> PlayTorrioTheme.colors.FocusBackground
+            else -> Color.White.copy(alpha = 0.06f)
+        },
+        animationSpec = tween(120),
+        label = "btnBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> PlayTorrioTheme.colors.Border
+            isFocused -> PlayTorrioTheme.colors.FocusRing
+            isPrimary -> PlayTorrioTheme.colors.Secondary
+            else -> PlayTorrioTheme.colors.Border
+        },
+        animationSpec = tween(120),
+        label = "btnBorder"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (isFocused) PlayTorrioTheme.spacing.xxs else PlayTorrioTheme.spacing.hairline,
+        animationSpec = tween(120),
+        label = "btnBorderWidth"
+    )
+    val textColor = when {
+        !enabled -> PlayTorrioTheme.colors.TextDisabled
+        else -> if (bgColor.luminance() > 0.55f) Color.Black else Color.White
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(PlayTorrioTheme.radii.md))
+            .background(bgColor)
+            .border(
+                border = if (isFocused && enabled) {
+                    PlayTorrioTheme.focusRing.border(borderWidth)
+                } else {
+                    BorderStroke(borderWidth, borderColor)
+                },
+                shape = RoundedCornerShape(PlayTorrioTheme.radii.md)
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable(enabled = enabled, interactionSource = interactionSource)
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (enabled && native.action == AndroidKeyEvent.ACTION_UP && isProfileSelectKey(native.keyCode)) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 28.dp, vertical = PlayTorrioTheme.spacing.md),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}

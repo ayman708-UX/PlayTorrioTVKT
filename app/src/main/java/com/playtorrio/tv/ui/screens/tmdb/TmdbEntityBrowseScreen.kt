@@ -1,0 +1,680 @@
+package com.playtorrio.tv.ui.screens.tmdb
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.AnimationSpec
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
+import com.playtorrio.tv.R
+import com.playtorrio.tv.core.tmdb.TmdbEntityBrowseData
+import com.playtorrio.tv.core.tmdb.TmdbEntityKind
+import com.playtorrio.tv.core.tmdb.TmdbEntityMediaType
+import com.playtorrio.tv.core.tmdb.TmdbEntityRail
+import com.playtorrio.tv.core.tmdb.TmdbEntityRailType
+import com.playtorrio.tv.domain.model.MetaPreview
+import com.playtorrio.tv.ui.components.EmptyScreenState
+import com.playtorrio.tv.ui.components.ErrorState
+import com.playtorrio.tv.ui.components.GridContentCard
+import com.playtorrio.tv.ui.components.LoadingIndicator
+import com.playtorrio.tv.ui.components.PosterCardDefaults
+import com.playtorrio.tv.ui.components.PosterCardStyle
+import com.playtorrio.tv.ui.screens.detail.requestFocusAfterFrames
+import kotlinx.coroutines.flow.distinctUntilChanged
+
+@Composable
+fun TmdbEntityBrowseScreen(
+    viewModel: TmdbEntityBrowseViewModel = hiltViewModel(),
+    onBackPress: () -> Unit,
+    onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val watchedMovieIds by viewModel.watchedMovieIds.collectAsStateWithLifecycle()
+    val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsStateWithLifecycle()
+    val screenMode = when (uiState) {
+        TmdbEntityBrowseUiState.Loading -> 0
+        is TmdbEntityBrowseUiState.Error -> 1
+        is TmdbEntityBrowseUiState.Success -> 2
+    }
+
+    BackHandler { onBackPress() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PlayTorrioTheme.colors.Background)
+    ) {
+        Crossfade(
+            targetState = screenMode,
+            label = "TmdbEntityBrowseState"
+        ) { mode ->
+            when (mode) {
+                0 -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingIndicator()
+                    }
+                }
+
+                1 -> {
+                    val errorState = uiState as? TmdbEntityBrowseUiState.Error
+                    ErrorState(
+                        message = errorState?.message ?: stringResource(R.string.tmdb_entity_error_load),
+                        onRetry = { viewModel.retry() }
+                    )
+                }
+
+                else -> {
+                    val successState = uiState as? TmdbEntityBrowseUiState.Success ?: return@Crossfade
+                    TmdbEntityBrowseContent(
+                        data = successState.data,
+                        sourceType = viewModel.sourceType,
+                        watchedMovieIds = watchedMovieIds,
+                        watchedSeriesIds = watchedSeriesIds,
+                        posterCardCornerRadiusDp = viewModel.posterCardCornerRadiusDp.collectAsStateWithLifecycle().value,
+                        onNavigateToDetail = onNavigateToDetail,
+                        onItemLongPress = { item ->
+                            viewModel.posterOptions.show(item, null)
+                        },
+                        onLoadMoreRail = { mediaType, railType ->
+                            viewModel.loadMoreRail(mediaType = mediaType, railType = railType)
+                        }
+                    )
+                }
+            }
+        }
+
+        val posterOptionsState by viewModel.posterOptions.state.collectAsStateWithLifecycle()
+        com.playtorrio.tv.ui.components.posteroptions.PosterOptionsHost(
+            state = posterOptionsState,
+            controller = viewModel.posterOptions,
+            onNavigateToDetail = { id, type, addonBaseUrl ->
+                onNavigateToDetail(id, type, addonBaseUrl.takeIf { it.isNotBlank() })
+            }
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+private fun TmdbEntityBrowseContent(
+    data: TmdbEntityBrowseData,
+    sourceType: String,
+    watchedMovieIds: Set<String>,
+    watchedSeriesIds: Set<String>,
+    posterCardCornerRadiusDp: Int = 12,
+    onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
+    onLoadMoreRail: (TmdbEntityMediaType, TmdbEntityRailType) -> Unit
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pendingRestoreItemId by rememberSaveable(data.header.id) { mutableStateOf<String?>(null) }
+    var pendingRestoreRailKey by rememberSaveable(data.header.id) { mutableStateOf<String?>(null) }
+    var restoreFocusToken by rememberSaveable(data.header.id) { mutableIntStateOf(0) }
+
+    DisposableEffect(lifecycleOwner, pendingRestoreItemId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && pendingRestoreItemId != null) {
+                restoreFocusToken += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val posterCardStyle = PosterCardDefaults.Style.copy(
+        cornerRadius = posterCardCornerRadiusDp.dp
+    )
+    val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    val localDensity = LocalDensity.current
+    val focusedItemIndexByRail = remember { mutableMapOf<String, Int>() }
+    val railFocusRequesters = remember { mutableMapOf<String, MutableMap<Int, FocusRequester>>() }
+    val railListStates = remember { mutableMapOf<String, LazyListState>() }
+    val railsListState = rememberLazyListState()
+    val firstCardFocusRequester = remember(data.header.id) { FocusRequester() }
+    var initialFocusRequested by rememberSaveable(data.header.id) { mutableStateOf(false) }
+
+    // Bring the rail that owns the restored card into the column viewport before the row restore runs.
+    LaunchedEffect(restoreFocusToken, pendingRestoreRailKey, data.rails) {
+        if (restoreFocusToken <= 0 || pendingRestoreItemId == null) return@LaunchedEffect
+        val railKey = pendingRestoreRailKey ?: return@LaunchedEffect
+        val railIndex = data.rails.indexOfFirst {
+            "${it.mediaType.value}_${it.railType.value}" == railKey
+        }
+        if (railIndex < 0) return@LaunchedEffect
+        runCatching { railsListState.scrollToItem(railIndex) }
+    }
+
+    val backgroundRequest = rememberBackgroundRequest(
+        data = data,
+        sourceType = sourceType
+    )
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Background image layer
+        if (backgroundRequest != null) {
+            AsyncImage(
+                model = backgroundRequest,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha = 0.14f
+            )
+        }
+
+        if (data.rails.isEmpty()) {
+            EmptyScreenState(
+                title = stringResource(R.string.tmdb_entity_empty_title),
+                subtitle = stringResource(R.string.tmdb_entity_empty_subtitle),
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else {
+            // Give the list extra trailing scroll room so the last rail can settle cleanly.
+            val railsTailPadding = maxHeight * 0.55f
+            val railHeaderFocusInset = PlayTorrioTheme.spacing.xxl
+            val railsBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
+                val topInsetPx = with(localDensity) { railHeaderFocusInset.toPx() }
+                @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+                object : BringIntoViewSpec {
+                    override val scrollAnimationSpec: AnimationSpec<Float> =
+                        defaultBringIntoViewSpec.scrollAnimationSpec
+
+                    override fun calculateScrollDistance(
+                        offset: Float,
+                        size: Float,
+                        containerSize: Float
+                    ): Float = offset - topInsetPx
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = PlayTorrioTheme.spacing.xl)
+            ) {
+                TmdbEntityHero(
+                    data = data,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = PlayTorrioTheme.spacing.md)
+                )
+
+                CompositionLocalProvider(LocalBringIntoViewSpec provides railsBringIntoViewSpec) {
+                    LazyColumn(
+                        state = railsListState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(top = PlayTorrioTheme.spacing.sm, bottom = railsTailPadding),
+                        verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xl)
+                    ) {
+                        itemsIndexed(
+                            items = data.rails,
+                            key = { _, rail -> "${rail.mediaType.value}_${rail.railType.value}" }
+                        ) { railIndex, rail ->
+                            val railKey = "${rail.mediaType.value}_${rail.railType.value}"
+                            val rememberedFocusedIndex = focusedItemIndexByRail[railKey] ?: 0
+                            val isRestoreRail = pendingRestoreRailKey == null || pendingRestoreRailKey == railKey
+                            EntityRailRow(
+                                rail = rail,
+                                initialFocusRequester = if (railIndex == 0) firstCardFocusRequester else null,
+                                shouldRequestInitialFocus = railIndex == 0 && !initialFocusRequested && pendingRestoreItemId == null,
+                                rowListState = railListStates.getOrPut(railKey) {
+                                    LazyListState(
+                                        firstVisibleItemIndex = rememberedFocusedIndex,
+                                        prefetchStrategy = LazyListPrefetchStrategy(nestedPrefetchItemCount = 2)
+                                    )
+                                },
+                                itemFocusRequesters = railFocusRequesters.getOrPut(railKey) { mutableMapOf() },
+                                rememberedFocusedIndex = rememberedFocusedIndex,
+                                posterCardStyle = posterCardStyle,
+                                watchedMovieIds = watchedMovieIds,
+                                watchedSeriesIds = watchedSeriesIds,
+                                restoreItemId = if (isRestoreRail) pendingRestoreItemId else null,
+                                restoreFocusToken = if (isRestoreRail) restoreFocusToken else 0,
+                                onInitialFocusHandled = { initialFocusRequested = true },
+                                onRestoreFocusHandled = {
+                                    pendingRestoreItemId = null
+                                    pendingRestoreRailKey = null
+                                },
+                                onFocusedItemIndexChanged = { focusedIndex ->
+                                    focusedItemIndexByRail[railKey] = focusedIndex
+                                },
+                                onItemClick = { item ->
+                                    pendingRestoreItemId = item.id
+                                    pendingRestoreRailKey = railKey
+                                    onNavigateToDetail(item.id, item.apiType, null)
+                                },
+                                onItemLongPress = onItemLongPress,
+                                onLoadMore = onLoadMoreRail
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberBackgroundRequest(
+    data: TmdbEntityBrowseData,
+    sourceType: String
+) : ImageRequest? {
+    val context = LocalContext.current
+    return remember(context, data, sourceType) {
+        val backgroundItem = data.rails.firstOrNull {
+            it.mediaType == if (sourceType.trim().equals("movie", ignoreCase = true)) {
+                TmdbEntityMediaType.MOVIE
+            } else {
+                TmdbEntityMediaType.TV
+            }
+        }?.items?.firstOrNull()?.background ?: data.rails.firstOrNull()?.items?.firstOrNull()?.background
+        backgroundItem?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .crossfade(true)
+                .build()
+        }
+    }
+}
+
+@Composable
+private fun TmdbEntityHero(
+    data: TmdbEntityBrowseData,
+    modifier: Modifier = Modifier
+) {
+    val hasLogo = !data.header.logo.isNullOrBlank()
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = PlayTorrioTheme.spacing.xxxl),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        val context = LocalContext.current
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = if (hasLogo) PlayTorrioTheme.spacing.xxl else PlayTorrioTheme.spacing.none)
+        ) {
+            Text(
+                text = entityKindLabel(data.header.kind),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.4.sp
+                ),
+                color = PlayTorrioTheme.colors.TextSecondary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = data.header.name,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontSize = 56.sp,
+                    lineHeight = 60.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-1).sp
+                ),
+                color = PlayTorrioTheme.colors.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val metaLine = listOfNotNull(
+                data.header.originCountry?.takeIf { it.isNotBlank() },
+                data.header.secondaryLabel?.takeIf { it.isNotBlank() }
+            ).joinToString(" • ")
+            if (metaLine.isNotBlank()) {
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.md))
+                Text(
+                    text = metaLine,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = PlayTorrioTheme.colors.TextSecondary
+                )
+            }
+            data.header.description?.takeIf { it.isNotBlank() }?.let { description ->
+                Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.lg))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 24.sp
+                    ),
+                    color = PlayTorrioTheme.colors.TextSecondary,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.88f)
+                )
+            }
+        }
+
+        if (hasLogo) {
+            val logoPainter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context)
+                    .data(data.header.logo)
+                    .crossfade(true)
+                    .allowHardware(false) // needed to read pixels
+                    .build()
+            )
+
+            // Detect dark monochrome logo and tint white if needed
+            var logoColorFilter by remember { mutableStateOf<ColorFilter?>(null) }
+            val painterState by logoPainter.state.collectAsState()
+            LaunchedEffect(painterState) {
+                if (painterState is AsyncImagePainter.State.Success) {
+                    val bitmap = ((painterState as AsyncImagePainter.State.Success).result.image as? coil3.BitmapImage)?.bitmap
+                    if (bitmap != null) {
+                        val isDarkMono = isLogoDarkAndMonochrome(bitmap)
+                        logoColorFilter = if (isDarkMono) {
+                            // Tint all opaque pixels white, preserving transparency
+                            ColorFilter.tint(Color.White, BlendMode.SrcIn)
+                        } else null
+                    }
+                }
+            }
+
+            Image(
+                painter = logoPainter,
+                contentDescription = data.header.name,
+                modifier = Modifier
+                    .width(280.dp)
+                    .height(120.dp),
+                contentScale = ContentScale.Fit,
+                colorFilter = logoColorFilter
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun EntityRailRow(
+    rail: TmdbEntityRail,
+    initialFocusRequester: FocusRequester?,
+    shouldRequestInitialFocus: Boolean,
+    rowListState: LazyListState,
+    itemFocusRequesters: MutableMap<Int, FocusRequester>,
+    rememberedFocusedIndex: Int,
+    posterCardStyle: PosterCardStyle,
+    watchedMovieIds: Set<String>,
+    watchedSeriesIds: Set<String>,
+    restoreItemId: String?,
+    restoreFocusToken: Int,
+    onInitialFocusHandled: () -> Unit,
+    onRestoreFocusHandled: () -> Unit,
+    onFocusedItemIndexChanged: (Int) -> Unit,
+    onItemClick: (MetaPreview) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
+    onLoadMore: (TmdbEntityMediaType, TmdbEntityRailType) -> Unit
+) {
+    val restoreFocusRequester = remember(rail.mediaType, rail.railType) { FocusRequester() }
+    var restorePending by remember(rail.mediaType, rail.railType) { mutableStateOf(false) }
+    val firstItemFocusRequester = initialFocusRequester
+        ?: itemFocusRequesters.getOrPut(0) { FocusRequester() }
+    var lastLoadMoreRequestTotal by remember(rail.mediaType, rail.railType) { mutableIntStateOf(-1) }
+
+    LaunchedEffect(shouldRequestInitialFocus, firstItemFocusRequester, rail.items.firstOrNull()?.id) {
+        if (!shouldRequestInitialFocus || rail.items.isEmpty()) return@LaunchedEffect
+        val focused = firstItemFocusRequester.requestFocusAfterFrames(frames = 2)
+        if (focused) {
+            onInitialFocusHandled()
+        }
+    }
+
+    // Scroll the target card into composition, then request focus with retries.
+    // Looking up a FocusRequester that was never composed (off-screen LazyRow items)
+    // used to exit early and leave focus on a random card after Back.
+    LaunchedEffect(restoreItemId, restoreFocusToken, rail.items) {
+        if (restoreFocusToken <= 0 || restoreItemId.isNullOrBlank()) {
+            restorePending = false
+            return@LaunchedEffect
+        }
+        val targetIndex = rail.items.indexOfFirst { it.id == restoreItemId }
+        if (targetIndex < 0) {
+            restorePending = false
+            return@LaunchedEffect
+        }
+        restorePending = true
+        runCatching { rowListState.scrollToItem(targetIndex) }
+        val focused = restoreFocusRequester.requestFocusAfterFrames(frames = 2)
+        if (!focused) {
+            // One more attempt after layout settles (common after column rail scroll).
+            restoreFocusRequester.requestFocusAfterFrames(frames = 3)
+        }
+    }
+
+    LaunchedEffect(rail.mediaType, rail.railType, rowListState, rail.hasMore, rail.isLoading) {
+        if (!rail.hasMore) return@LaunchedEffect
+        snapshotFlow {
+            val layoutInfo = rowListState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible to total
+        }
+            .distinctUntilChanged()
+            .collect { (lastVisible, total) ->
+                if (total <= 0) return@collect
+                val isNearEnd = lastVisible >= total - 4
+                if (!isNearEnd) {
+                    lastLoadMoreRequestTotal = -1
+                    return@collect
+                }
+                if (rail.hasMore && !rail.isLoading && lastLoadMoreRequestTotal != total) {
+                    lastLoadMoreRequestTotal = total
+                    onLoadMore(rail.mediaType, rail.railType)
+                }
+            }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = railTitle(rail),
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.SemiBold
+            ),
+            color = PlayTorrioTheme.colors.TextPrimary,
+            modifier = Modifier.padding(horizontal = PlayTorrioTheme.spacing.xxxl)
+        )
+        Spacer(modifier = Modifier.height(PlayTorrioTheme.spacing.sm))
+        val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+        val localDensity = LocalDensity.current
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        val rowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
+            val startPx = with(localDensity) { PlayTorrioTheme.spacing.xxxl.roundToPx() }
+            object : BringIntoViewSpec {
+                override val scrollAnimationSpec: AnimationSpec<Float> =
+                    defaultBringIntoViewSpec.scrollAnimationSpec
+
+                override fun calculateScrollDistance(
+                    offset: Float,
+                    size: Float,
+                    containerSize: Float
+                ): Float {
+                    val childSize = kotlin.math.abs(size)
+                    val target = startPx.toFloat()
+                    val space = containerSize - target
+                    val leading = if (childSize <= containerSize && space < childSize) containerSize - childSize else target
+                    return offset - leading
+                }
+            }
+        }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides rowBringIntoViewSpec) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRestorer {
+                        if (restorePending) {
+                            restoreFocusRequester
+                        } else {
+                            itemFocusRequesters[rememberedFocusedIndex]
+                                ?: itemFocusRequesters[0]
+                                ?: firstItemFocusRequester
+                        }
+                    }
+                    .focusGroup(),
+                state = rowListState,
+                contentPadding = PaddingValues(horizontal = PlayTorrioTheme.spacing.xxxl),
+                horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+            ) {
+                itemsIndexed(
+                    items = rail.items,
+                    key = { _, item -> item.id }
+                ) { itemIndex, item ->
+                    val isRestoreTarget = item.id == restoreItemId
+                    val requester = when {
+                        isRestoreTarget -> restoreFocusRequester
+                        itemIndex == 0 -> firstItemFocusRequester
+                        else -> itemFocusRequesters.getOrPut(itemIndex) { FocusRequester() }
+                    }
+                    GridContentCard(
+                        item = item,
+                        onClick = { onItemClick(item) },
+                        onLongPress = { onItemLongPress(item) },
+                        posterCardStyle = posterCardStyle,
+                        showLabel = true,
+                        isWatched = if (rail.mediaType == TmdbEntityMediaType.TV) {
+                            item.id in watchedSeriesIds
+                        } else {
+                            item.id in watchedMovieIds
+                        },
+                        focusRequester = requester,
+                        onFocused = {
+                            onFocusedItemIndexChanged(itemIndex)
+                            if (isRestoreTarget && restoreFocusToken > 0) {
+                                restorePending = false
+                                onRestoreFocusHandled()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun entityKindLabel(kind: TmdbEntityKind): String = when (kind) {
+    TmdbEntityKind.COMPANY -> stringResource(R.string.tmdb_entity_kind_company)
+    TmdbEntityKind.NETWORK -> stringResource(R.string.tmdb_entity_kind_network)
+}
+
+@Composable
+private fun railTitle(rail: TmdbEntityRail): String {
+    val mediaLabel = when (rail.mediaType) {
+        TmdbEntityMediaType.MOVIE -> stringResource(R.string.type_movie)
+        TmdbEntityMediaType.TV -> stringResource(R.string.type_series)
+    }
+    val railLabel = when (rail.railType) {
+        TmdbEntityRailType.POPULAR -> stringResource(R.string.tmdb_entity_rail_popular)
+        TmdbEntityRailType.TOP_RATED -> stringResource(R.string.tmdb_entity_rail_top_rated)
+        TmdbEntityRailType.RECENT -> stringResource(R.string.tmdb_entity_rail_recent)
+    }
+    return "$mediaLabel • $railLabel"
+}
+
+/**
+ * Samples pixels from a [Bitmap] and returns true only if the non-transparent
+ * pixels are both predominantly dark AND low-saturation (grayscale / monochrome).
+ * This avoids treating colorful logos (red, blue, etc.) as "black".
+ */
+private fun isLogoDarkAndMonochrome(bitmap: Bitmap): Boolean {
+    val width = bitmap.width
+    val height = bitmap.height
+    val step = maxOf(1, minOf(width, height) / 20) // sample ~20×20 grid
+    var totalLuminance = 0.0
+    var totalSaturation = 0.0
+    var count = 0
+    val hsv = FloatArray(3)
+    var x = 0
+    while (x < width) {
+        var y = 0
+        while (y < height) {
+            val pixel = bitmap.getPixel(x, y)
+            val alpha = (pixel ushr 24) and 0xFF
+            if (alpha > 50) { // skip transparent / nearly-transparent pixels
+                val r = ((pixel ushr 16) and 0xFF) / 255.0
+                val g = ((pixel ushr 8) and 0xFF) / 255.0
+                val b = (pixel and 0xFF) / 255.0
+                totalLuminance += 0.2126 * r + 0.7152 * g + 0.0722 * b
+                android.graphics.Color.colorToHSV(pixel, hsv)
+                totalSaturation += hsv[1]
+                count++
+            }
+            y += step
+        }
+        x += step
+    }
+    if (count == 0) return false
+    val avgLuminance = totalLuminance / count
+    val avgSaturation = totalSaturation / count
+    // Dark (luminance < 0.3) AND grayscale (saturation < 0.2)
+    return avgLuminance < 0.3 && avgSaturation < 0.2
+}

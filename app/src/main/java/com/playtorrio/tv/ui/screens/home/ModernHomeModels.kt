@@ -1,0 +1,690 @@
+package com.playtorrio.tv.ui.screens.home
+
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.playtorrio.tv.domain.model.CatalogRow
+import com.playtorrio.tv.domain.model.Collection
+import com.playtorrio.tv.domain.model.CollectionFolder
+import com.playtorrio.tv.domain.model.ContentType
+import com.playtorrio.tv.domain.model.PosterShape
+import com.playtorrio.tv.domain.model.stableKey
+import com.playtorrio.tv.ui.util.localizeEpisodeTitle
+import com.playtorrio.tv.ui.util.localizedContentType
+import com.playtorrio.tv.ui.util.computeAirDateBadgeText
+import com.playtorrio.tv.ui.util.formatHeroRuntime
+import com.playtorrio.tv.domain.model.MetaPreview
+import com.playtorrio.tv.R
+import com.playtorrio.tv.ui.components.formatContinueWatchingProgressLabel
+import com.playtorrio.tv.ui.util.StableList
+import com.playtorrio.tv.ui.util.StableMap
+import com.playtorrio.tv.ui.util.StableSet
+import com.playtorrio.tv.ui.util.asStable
+
+internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
+internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.42f
+internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
+internal const val MODERN_TRAILER_OVERSCAN_ZOOM = 1.35f
+internal const val MODERN_HERO_FOCUS_DEBOUNCE_MS = 450L
+internal val MODERN_ROW_HEADER_FOCUS_INSET = 40.dp
+internal const val MODERN_CONTINUE_WATCHING_ROW_KEY = "continue_watching"
+internal const val MODERN_UPCOMING_ROW_KEY = "upcoming_section"
+internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0.0f to Color.Transparent,
+        0.58f to Color.Transparent,
+        1.0f to Color.Black.copy(alpha = 0.75f)
+    )
+)
+
+@Immutable
+data class HeroPreview(
+    val title: String,
+    val logo: String?,
+    val description: String?,
+    val contentTypeText: String?,
+    val isSeries: Boolean = false,
+    val yearText: String?,
+    val runtimeText: String? = null,
+    val secondaryHighlightText: String? = null,
+    val imdbText: String?,
+    val ageRatingText: String? = null,
+    val statusText: String? = null,
+    val countryText: String? = null,
+    val languageText: String? = null,
+    val genres: StableList<String>,
+    val poster: String?,
+    val backdrop: String?,
+    val imageUrl: String?,
+    /** Snapshot of the backdrop URL captured before TMDB enrichment.
+     *  Survives cache rebuilds so landscape cards keep their original art
+     *  even after navigation away and back. */
+    val frozenBackdropUrl: String? = null,
+    /** Same idea for the logo URL. */
+    val frozenLogoUrl: String? = null
+)
+
+@Immutable
+sealed class ModernPayload {
+    data class ContinueWatching(val item: ContinueWatchingItem) : ModernPayload()
+    data class Catalog(
+        val focusKey: String,
+        val itemId: String,
+        val itemType: String,
+        val addonBaseUrl: String,
+        val trailerTitle: String,
+        val trailerReleaseInfo: String?,
+        val trailerApiType: String
+    ) : ModernPayload()
+    data class CollectionFolder(
+        val focusKey: String,
+        val collectionId: String,
+        val collectionTitle: String,
+        val folderId: String,
+        val posterShape: PosterShape,
+        val focusGlowEnabled: Boolean,
+        val focusGifEnabled: Boolean,
+        val focusGifUrl: String?,
+        val heroBackdropUrl: String?,
+        val heroVideoUrl: String?,
+        val titleLogoUrl: String?,
+        val coverEmoji: String? = null
+    ) : ModernPayload()
+}
+
+@Immutable
+internal data class FocusedCatalogSelection(
+    val focusKey: String,
+    val payload: ModernPayload
+)
+
+@Immutable
+data class ModernCarouselItem(
+    val key: String,
+    val title: String,
+    val subtitle: String?,
+    val imageUrl: String?,
+    val heroPreview: HeroPreview,
+    val payload: ModernPayload,
+    val metaPreview: MetaPreview? = null
+)
+
+@Immutable
+data class HeroCarouselRow(
+    val key: String,
+    val title: String,
+    val globalRowIndex: Int,
+    val items: StableList<ModernCarouselItem>,
+    val catalogId: String? = null,
+    val addonId: String? = null,
+    val apiType: String? = null,
+    val supportsSkip: Boolean = false,
+    val hasMore: Boolean = false,
+    val isLoading: Boolean = false
+)
+
+@Immutable
+data class CarouselRowLookups(
+    val rowIndexByKey: StableMap<String, Int>,
+    val rowByKey: StableMap<String, HeroCarouselRow>,
+    val rowKeyByGlobalRowIndex: StableMap<Int, String>,
+    val firstHeroPreviewByRow: StableMap<String, HeroPreview>,
+    val fallbackBackdropByRow: StableMap<String, String>,
+    val activeRowKeys: StableSet<String>,
+    val activeItemKeysByRow: StableMap<String, Set<String>>,
+    val activeCatalogItemIds: StableSet<String>
+)
+
+@Immutable
+data class ModernHomePresentationState(
+    val rows: StableList<HeroCarouselRow> = StableList(),
+    val lookups: CarouselRowLookups = CarouselRowLookups(
+        rowIndexByKey = StableMap(),
+        rowByKey = StableMap(),
+        rowKeyByGlobalRowIndex = StableMap(),
+        firstHeroPreviewByRow = StableMap(),
+        fallbackBackdropByRow = StableMap(),
+        activeRowKeys = StableSet(),
+        activeItemKeysByRow = StableMap(),
+        activeCatalogItemIds = StableSet()
+    )
+)
+
+@Immutable
+internal data class ModernHeroSceneState(
+    val heroBackdrop: String?,
+    val preview: HeroPreview?,
+    val enrichmentActive: Boolean,
+    val shouldPlayTrailer: Boolean,
+    val trailerFirstFrameRendered: Boolean,
+    val trailerUrl: String?,
+    val trailerAudioUrl: String?,
+    val trailerPlaybackKey: String?,
+    val trailerMuted: Boolean,
+    val fullScreenBackdrop: Boolean
+)
+
+internal data class ModernCatalogRowBuildCacheEntry(
+    val source: CatalogRow,
+    val useLandscapePosters: Boolean,
+    val showCatalogTypeSuffix: Boolean,
+    val showImdbRatings: Boolean,
+    val localeTag: String,
+    val mappedRow: HeroCarouselRow
+)
+
+internal data class ModernCollectionRowBuildCacheEntry(
+    val source: Collection,
+    val mappedRow: HeroCarouselRow
+)
+@Stable
+class ModernCarouselRowBuildCache {
+    var continueWatchingItems: List<ContinueWatchingItem> = emptyList()
+    var continueWatchingTitle: String = ""
+    var continueWatchingAirsDateTemplate: String = ""
+    var continueWatchingUpcomingLabel: String = ""
+    var continueWatchingUseLandscapePosters: Boolean = false
+    var continueWatchingShowImdbRatings: Boolean = true
+    var continueWatchingRow: HeroCarouselRow? = null
+    var upcomingItems: List<ContinueWatchingItem> = emptyList()
+    var upcomingTitle: String = ""
+    var upcomingUseLandscapePosters: Boolean = false
+    var upcomingShowImdbRatings: Boolean = true
+    var upcomingRow: HeroCarouselRow? = null
+    internal val catalogRows = java.util.concurrent.ConcurrentHashMap<String, ModernCatalogRowBuildCacheEntry>()
+    internal val collectionRows = java.util.concurrent.ConcurrentHashMap<String, ModernCollectionRowBuildCacheEntry>()
+    // per-item cache: rowKey -> (itemId -> cached carousel item + source MetaPreview)
+    internal val catalogItemCache = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, CachedCarouselItem>>()
+}
+
+internal data class CachedCarouselItem(
+    val source: MetaPreview,
+    val useLandscapePosters: Boolean,
+    val showFullReleaseDate: Boolean,
+    val showImdbRatings: Boolean,
+    val carouselItem: ModernCarouselItem
+)
+
+@Immutable
+internal data class ModernCatalogCardMetrics(
+    val width: androidx.compose.ui.unit.Dp,
+    val height: androidx.compose.ui.unit.Dp
+)
+
+internal fun ModernCarouselItem.catalogCardMetrics(
+    useLandscapePosters: Boolean,
+    portraitCardWidth: androidx.compose.ui.unit.Dp,
+    portraitCardHeight: androidx.compose.ui.unit.Dp,
+    landscapeCardWidth: androidx.compose.ui.unit.Dp,
+    landscapeCardHeight: androidx.compose.ui.unit.Dp
+): ModernCatalogCardMetrics {
+    // Collection folders define their own tile shape — never override with
+    // the global landscape-posters toggle.
+    if (useLandscapePosters && payload !is ModernPayload.CollectionFolder) {
+        return ModernCatalogCardMetrics(
+            width = landscapeCardWidth,
+            height = landscapeCardHeight
+        )
+    }
+
+    val posterShape = when (payload) {
+        is ModernPayload.Catalog -> metaPreview?.posterShape ?: PosterShape.POSTER
+        is ModernPayload.CollectionFolder -> payload.posterShape
+        is ModernPayload.ContinueWatching -> PosterShape.POSTER
+    }
+
+    return when (posterShape) {
+        PosterShape.LANDSCAPE -> ModernCatalogCardMetrics(
+            width = landscapeCardWidth,
+            height = landscapeCardHeight
+        )
+
+        PosterShape.SQUARE -> ModernCatalogCardMetrics(
+            width = portraitCardHeight,
+            height = portraitCardHeight
+        )
+
+        PosterShape.POSTER -> ModernCatalogCardMetrics(
+            width = portraitCardWidth,
+            height = portraitCardHeight
+        )
+    }
+}
+
+internal fun ModernCarouselItem.catalogCardRequestMetrics(
+    useLandscapePosters: Boolean,
+    portraitCardWidth: androidx.compose.ui.unit.Dp,
+    portraitCardHeight: androidx.compose.ui.unit.Dp,
+    landscapeCardWidth: androidx.compose.ui.unit.Dp,
+    landscapeCardHeight: androidx.compose.ui.unit.Dp,
+    expandEnabled: Boolean = false
+): ModernCatalogCardMetrics {
+    val base = catalogCardMetrics(
+        useLandscapePosters = useLandscapePosters,
+        portraitCardWidth = portraitCardWidth,
+        portraitCardHeight = portraitCardHeight,
+        landscapeCardWidth = landscapeCardWidth,
+        landscapeCardHeight = landscapeCardHeight
+    )
+    if (!expandEnabled) return base
+
+    val expandedWidth = if (useLandscapePosters && payload !is ModernPayload.CollectionFolder) {
+        base.width
+    } else {
+        base.height * (16f / 9f)
+    }
+    return base.copy(width = maxOf(base.width, expandedWidth))
+}
+
+
+internal fun buildContinueWatchingItem(
+    item: ContinueWatchingItem,
+    useLandscapePosters: Boolean,
+    showImdbRatings: Boolean,
+    airsDateTemplate: String,
+    upcomingLabel: String,
+    context: android.content.Context
+): ModernCarouselItem {
+    val secondaryHighlightText = when (item) {
+        is ContinueWatchingItem.InProgress -> {
+            val progress = item.progress
+            formatContinueWatchingProgressLabel(
+                progress = progress,
+                resumeLabel = context.getString(R.string.cw_resume),
+                percentWatchedLabel = context.getString(R.string.cw_percent_watched),
+                hoursMinLeftLabel = context.getString(R.string.cw_hours_min_left),
+                minLeftLabel = context.getString(R.string.cw_min_left)
+            )
+        }
+        is ContinueWatchingItem.NextUp -> {
+            if (item.info.isReleaseAlert) {
+                if (item.info.isNewSeasonRelease) {
+                    context.getString(R.string.cw_new_season)
+                } else {
+                    context.getString(R.string.cw_new_episode)
+                }
+            } else if (!item.info.hasAired) {
+                computeAirDateBadgeText(context, item.info.released, item.info.airDateLabel)
+                    ?: context.getString(R.string.cw_upcoming)
+            } else {
+                context.getString(R.string.cw_next_up)
+            }
+        }
+    }.uppercase()
+
+    val heroPreview = when (item) {
+        is ContinueWatchingItem.InProgress -> {
+            val isSeries = isSeriesType(item.progress.contentType)
+            val s = item.progress.season
+            val e = item.progress.episode
+            val episodeCode = if (s != null && e != null) {
+                context.getString(R.string.season_episode_format, s, e)
+            } else {
+                null
+            }
+            val episodeTitle = item.progress.episodeTitle?.takeIf { it.isNotBlank() }?.localizeEpisodeTitle(context)
+            val episodeLabel = when {
+                isSeries && episodeCode != null && episodeTitle != null -> "$episodeCode · $episodeTitle"
+                isSeries && episodeCode != null -> episodeCode
+                isSeries && episodeTitle != null -> episodeTitle
+                else -> localizedContentType(context, item.progress.contentType)
+            }
+            HeroPreview(
+                title = item.progress.name,
+                logo = item.progress.logo,
+                description = item.episodeDescription ?: item.progress.episodeTitle?.localizeEpisodeTitle(context),
+                contentTypeText = episodeLabel,
+                isSeries = isSeries,
+                yearText = extractYearOrRange(item.releaseInfo),
+                secondaryHighlightText = secondaryHighlightText,
+                imdbText = item.episodeImdbRating
+                    ?.let { String.format("%.1f", it) },
+                genres = item.genres.asStable(),
+                poster = item.progress.poster,
+                backdrop = item.progress.backdrop,
+                imageUrl = if (useLandscapePosters) {
+                    item.progress.backdrop ?: item.progress.poster
+                } else {
+                    item.progress.poster ?: item.progress.backdrop
+                }
+            )
+        }
+        is ContinueWatchingItem.NextUp -> {
+            val episodeCode = context.getString(
+                R.string.season_episode_format,
+                item.info.season,
+                item.info.episode
+            )
+            val episodeTitle = item.info.episodeTitle?.takeIf { it.isNotBlank() }?.localizeEpisodeTitle(context)
+            val episodeLabel = if (episodeTitle != null) "$episodeCode · $episodeTitle" else episodeCode
+            HeroPreview(
+                title = item.info.name,
+                logo = item.info.logo,
+                description = item.info.episodeDescription
+                    ?: item.info.episodeTitle?.localizeEpisodeTitle(context)
+                    ?: item.info.airDateLabel?.let { airsDateTemplate.format(it) },
+                contentTypeText = episodeLabel,
+                isSeries = true,
+                yearText = extractYearOrRange(item.info.releaseInfo),
+                secondaryHighlightText = secondaryHighlightText,
+                imdbText = item.info.imdbRating
+                    ?.let { String.format("%.1f", it) },
+                genres = item.info.genres.asStable(),
+                poster = item.info.poster,
+                backdrop = item.info.backdrop,
+                imageUrl = if (useLandscapePosters) {
+                    firstNonBlank(item.info.backdrop, item.info.poster, item.info.thumbnail)
+                } else {
+                    firstNonBlank(item.info.poster, item.info.backdrop, item.info.thumbnail)
+                }
+            )
+        }
+    }
+
+    val imageUrl = when (item) {
+        is ContinueWatchingItem.InProgress -> if (useLandscapePosters) {
+            if (isSeriesType(item.progress.contentType)) {
+                firstNonBlank(item.episodeThumbnail, item.progress.poster, item.progress.backdrop)
+            } else {
+                firstNonBlank(item.progress.backdrop, item.progress.poster)
+            }
+        } else {
+            if (isSeriesType(item.progress.contentType)) {
+                firstNonBlank(heroPreview.poster, item.progress.poster, item.progress.backdrop)
+            } else {
+                firstNonBlank(item.progress.poster, item.progress.backdrop)
+            }
+        }
+        is ContinueWatchingItem.NextUp -> if (useLandscapePosters) {
+            if (item.info.hasAired) {
+                firstNonBlank(item.info.thumbnail, item.info.poster, item.info.backdrop)
+            } else {
+                firstNonBlank(item.info.backdrop, item.info.poster, item.info.thumbnail)
+            }
+        } else {
+            firstNonBlank(item.info.poster, item.info.backdrop, item.info.thumbnail)
+        }
+    }
+
+    return ModernCarouselItem(
+        key = continueWatchingItemKey(item),
+        title = when (item) {
+            is ContinueWatchingItem.InProgress -> item.progress.name
+            is ContinueWatchingItem.NextUp -> item.info.name
+        },
+        subtitle = when (item) {
+            is ContinueWatchingItem.InProgress -> {
+                val ps = item.progress.season
+                val pe = item.progress.episode
+                if (ps != null && pe != null) {
+                    context.getString(R.string.season_episode_format, ps, pe)
+                } else {
+                    item.progress.episodeTitle
+                }
+            }
+            is ContinueWatchingItem.NextUp -> {
+                val code = context.getString(
+                    R.string.season_episode_format,
+                    item.info.season,
+                    item.info.episode
+                )
+                if (item.info.hasAired) {
+                    code
+                } else {
+                    item.info.airDateLabel?.let { "$code • ${airsDateTemplate.format(it)}" } ?: "$code • $upcomingLabel"
+                }
+            }
+        },
+        imageUrl = imageUrl,
+        heroPreview = heroPreview.copy(imageUrl = imageUrl ?: heroPreview.imageUrl),
+        payload = ModernPayload.ContinueWatching(item)
+    )
+}
+
+internal fun buildCatalogItem(
+    item: MetaPreview,
+    row: CatalogRow,
+    useLandscapePosters: Boolean,
+    occurrence: Int,
+    strTypeMovie: String = "",
+    strTypeSeries: String = "",
+    showFullReleaseDate: Boolean = true,
+    showImdbRatings: Boolean = true,
+    previousCachedItem: ModernCarouselItem? = null
+): ModernCarouselItem {
+    // Carry forward the frozen URLs from the previous cache entry so that
+    // TMDB enrichment never changes the image shown on landscape cards,
+    // even after the composable remember-state is lost (e.g. navigation).
+    val carriedBackdrop = previousCachedItem?.heroPreview?.frozenBackdropUrl
+    val carriedLogo = previousCachedItem?.heroPreview?.frozenLogoUrl
+
+    val currentBackdrop = item.backdropUrl
+    val currentLogo = item.logo
+
+    // First non-blank value wins and is never replaced.
+    val frozenBackdrop = carriedBackdrop?.takeIf { it.isNotBlank() }
+        ?: currentBackdrop
+    val frozenLogo = carriedLogo?.takeIf { it.isNotBlank() }
+        ?: currentLogo
+
+    val heroPreview = HeroPreview(
+        title = item.name,
+        logo = item.logo,
+        description = item.description,
+        contentTypeText = when (item.apiType.lowercase()) {
+            "movie" -> strTypeMovie.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
+            "series" -> strTypeSeries.ifBlank { item.apiType.replaceFirstChar { ch -> ch.uppercase() } }
+            else -> item.apiType.replaceFirstChar { ch -> ch.uppercase() }
+        },
+        isSeries = isSeriesType(item.apiType),
+        yearText = extractYearText(item.type, item.releaseInfo, item.released, showFullReleaseDate),
+        runtimeText = formatHeroRuntime(item.runtime),
+        imdbText = item.imdbRating
+            ?.let { String.format("%.1f", it) },
+        ageRatingText = item.ageRating,
+        statusText = item.status,
+        countryText = item.country,
+        languageText = item.language?.uppercase(),
+        genres = item.genres.take(3).asStable(),
+        poster = item.poster,
+        backdrop = item.backdropUrl,
+        imageUrl = if (useLandscapePosters) {
+            item.backdropUrl ?: item.poster
+        } else {
+            item.poster ?: item.backdropUrl
+        },
+        frozenBackdropUrl = frozenBackdrop,
+        frozenLogoUrl = frozenLogo
+    )
+
+    return ModernCarouselItem(
+        key = "catalog_${row.key()}_${item.id}_${occurrence}",
+        title = item.name,
+        subtitle = item.releaseInfo,
+        imageUrl = if (useLandscapePosters) {
+            item.backdropUrl ?: item.poster
+        } else {
+            item.poster ?: item.backdropUrl
+        },
+        heroPreview = heroPreview,
+        payload = ModernPayload.Catalog(
+            focusKey = "${row.key()}::${item.id}",
+            itemId = item.id,
+            itemType = item.apiType,
+            addonBaseUrl = row.addonBaseUrl,
+            trailerTitle = item.name,
+            trailerReleaseInfo = item.releaseInfo,
+            trailerApiType = item.apiType
+        ),
+        metaPreview = item
+    )
+}
+
+internal fun buildCollectionFolderItem(
+    collection: Collection,
+    folder: CollectionFolder,
+    occurrence: Int = 0
+): ModernCarouselItem {
+    val title = if (!folder.coverEmoji.isNullOrBlank()) {
+        "${folder.coverEmoji}  ${folder.title}"
+    } else {
+        folder.title
+    }
+    // Cover image takes priority over emoji. Emoji is only used as fallback
+    // when no cover image is available.
+    // GIF URL is only used as an animated overlay on focus (when focusGifEnabled is true).
+    // Don't use it as a static poster — it would still animate via Coil's GIF decoder.
+    val imageUrl = firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl)
+    val heroBackdrop = firstNonBlank(folder.heroBackdropUrl, folder.coverImageUrl, collection.backdropImageUrl)
+
+    return ModernCarouselItem(
+        key = "collection_${collection.id}_${folder.id}_$occurrence",
+        title = if (folder.hideTitle) "" else folder.title,
+        subtitle = if (folder.hideTitle) null else collection.title,
+        imageUrl = imageUrl,
+        heroPreview = HeroPreview(
+            title = if (folder.hideTitle) "" else title,
+            logo = folder.titleLogoUrl,
+            description = null,
+            contentTypeText = null,
+            yearText = null,
+            imdbText = null,
+            genres = emptyList<String>().asStable(),
+            poster = imageUrl,
+            backdrop = heroBackdrop,
+            imageUrl = imageUrl
+        ),
+        payload = ModernPayload.CollectionFolder(
+            focusKey = "collection_${collection.id}::${folder.id}",
+            collectionId = collection.id,
+            collectionTitle = collection.title,
+            folderId = folder.id,
+            posterShape = folder.tileShape,
+            focusGlowEnabled = collection.focusGlowEnabled,
+            focusGifEnabled = folder.focusGifEnabled,
+            focusGifUrl = folder.focusGifUrl,
+            heroBackdropUrl = folder.heroBackdropUrl,
+            heroVideoUrl = folder.heroVideoUrl,
+            titleLogoUrl = folder.titleLogoUrl,
+            coverEmoji = folder.coverEmoji
+        )
+    )
+}
+
+internal fun continueWatchingItemKey(item: ContinueWatchingItem): String {
+    return when (item) {
+        is ContinueWatchingItem.InProgress ->
+            "cw_inprogress_${item.progress.contentId}_${item.progress.season ?: -1}_${item.progress.episode ?: -1}"
+        is ContinueWatchingItem.NextUp ->
+            "cw_nextup_${item.info.contentId}_${item.info.season}_${item.info.episode}"
+    }
+}
+
+internal fun catalogRowKey(row: CatalogRow): String {
+    return row.stableKey()
+}
+
+internal fun catalogRowTitle(
+    row: CatalogRow,
+    showCatalogTypeSuffix: Boolean,
+    strTypeMovie: String = "",
+    strTypeSeries: String = ""
+): String {
+    val catalogName = row.catalogName.replaceFirstChar { it.uppercase() }
+    if (!showCatalogTypeSuffix) return catalogName
+    val typeLabel = when (row.apiType.lowercase()) {
+        "movie" -> strTypeMovie.ifBlank { row.apiType.replaceFirstChar { it.uppercase() } }
+        "series" -> strTypeSeries.ifBlank { row.apiType.replaceFirstChar { it.uppercase() } }
+        else -> row.apiType.replaceFirstChar { it.uppercase() }
+    }
+    return "$catalogName - $typeLabel"
+}
+
+internal fun CatalogRow.key(): String {
+    return stableKey()
+}
+
+internal fun isSeriesType(type: String?): Boolean {
+    return type.equals("series", ignoreCase = true) || type.equals("tv", ignoreCase = true)
+}
+
+internal fun firstNonBlank(vararg candidates: String?): String? {
+    return candidates.firstOrNull { !it.isNullOrBlank() }?.trim()
+}
+
+internal fun extractYear(releaseInfo: String?): String? {
+    if (releaseInfo.isNullOrBlank()) return null
+    return YEAR_REGEX.find(releaseInfo)?.value
+}
+
+internal fun extractYearOrRange(releaseInfo: String?): String? {
+    if (releaseInfo.isNullOrBlank()) return null
+    return releaseInfo.trim()
+}
+
+@Volatile
+private var cachedDateFormatLocale: java.util.Locale? = null
+@Volatile
+private var cachedDateFormatPattern: String? = null
+
+internal fun extractYearText(type: ContentType, releaseInfo: String?, released: String?, showFullDate: Boolean = true): String? {
+    if (showFullDate && type == ContentType.MOVIE) {
+        val full = released
+            ?.let {
+                // Try OffsetDateTime first (addon format: "2024-03-15T00:00:00.000Z"),
+                // then LocalDate (TMDB collection format: "2024-03-15"). (#2516)
+                runCatching { java.time.OffsetDateTime.parse(it).toLocalDate() }.getOrNull()
+                    ?: runCatching { java.time.LocalDate.parse(it) }.getOrNull()
+            }
+            ?.let {
+                val locale = java.util.Locale.getDefault()
+                val pattern = if (locale == cachedDateFormatLocale && cachedDateFormatPattern != null) {
+                    cachedDateFormatPattern!!
+                } else {
+                    android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMMy").also { p ->
+                        cachedDateFormatPattern = p
+                        cachedDateFormatLocale = locale
+                    }
+                }
+                // Use SimpleDateFormat (not DateTimeFormatter) to match the Details
+                // page formatting. DateTimeFormatter.ofPattern interprets MMMM as
+                // the standalone month form in some locales (e.g. Polish "czerwiec"
+                // instead of the genitive "czerwca" used in full dates), while
+                // SimpleDateFormat uses the inflected form expected in date context.
+                java.text.SimpleDateFormat(pattern, locale)
+                    .format(java.util.Date(it.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()))
+            }
+        if (full != null) return full
+    }
+    return extractYearOrRange(releaseInfo)
+}
+
+internal fun ContinueWatchingItem.contentId(): String {
+    return when (this) {
+        is ContinueWatchingItem.InProgress -> progress.contentId
+        is ContinueWatchingItem.NextUp -> info.contentId
+    }
+}
+
+internal fun ContinueWatchingItem.contentType(): String {
+    return when (this) {
+        is ContinueWatchingItem.InProgress -> progress.contentType
+        is ContinueWatchingItem.NextUp -> info.contentType
+    }
+}
+
+internal fun ContinueWatchingItem.season(): Int? {
+    return when (this) {
+        is ContinueWatchingItem.InProgress -> progress.season
+        is ContinueWatchingItem.NextUp -> info.seedSeason
+    }
+}
+
+internal fun ContinueWatchingItem.episode(): Int? {
+    return when (this) {
+        is ContinueWatchingItem.InProgress -> progress.episode
+        is ContinueWatchingItem.NextUp -> info.seedEpisode
+    }
+}

@@ -1,0 +1,192 @@
+package com.playtorrio.tv.data.local
+
+import android.content.Context
+import com.playtorrio.tv.core.profile.ProfileManager
+import com.playtorrio.tv.domain.model.AddonCatalogCollectionSource
+import com.playtorrio.tv.domain.model.TmdbCollectionFilters
+import com.playtorrio.tv.domain.model.TmdbCollectionMediaType
+import com.playtorrio.tv.domain.model.TmdbCollectionSource
+import com.playtorrio.tv.domain.model.TmdbCollectionSourceType
+import com.playtorrio.tv.domain.model.TraktCollectionSource
+import io.mockk.mockk
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CollectionsDataStoreSourceMigrationTest {
+    private val store = CollectionsDataStore(
+        appContext = mockk<Context>(relaxed = true),
+        factory = mockk<ProfileDataStoreFactory>(relaxed = true),
+        profileManager = mockk<ProfileManager>(relaxed = true)
+    )
+
+    @Test
+    fun `import converts legacy catalogSources to addon sources`() {
+        val json = """
+            [
+              {
+                "id": "collection",
+                "title": "Legacy",
+                "folders": [
+                  {
+                    "id": "folder",
+                    "title": "Movies",
+                    "catalogSources": [
+                      {
+                        "addonId": "addon",
+                        "type": "movie",
+                        "catalogId": "popular",
+                        "genre": "Action"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+        """.trimIndent()
+
+        val source = store.importFromJson(json).single().folders.single().sources.single()
+
+        assertTrue(source is AddonCatalogCollectionSource)
+        source as AddonCatalogCollectionSource
+        assertEquals("addon", source.addonId)
+        assertEquals("movie", source.type)
+        assertEquals("popular", source.catalogId)
+        assertEquals("Action", source.genre)
+    }
+
+    @Test
+    fun `export includes provider aware tmdb sources`() {
+        val collection = com.playtorrio.tv.domain.model.Collection(
+            id = "collection",
+            title = "TMDB",
+            folders = listOf(
+                com.playtorrio.tv.domain.model.CollectionFolder(
+                    id = "folder",
+                    title = "Marvel",
+                    sources = listOf(
+                        TmdbCollectionSource(
+                            sourceType = TmdbCollectionSourceType.COMPANY,
+                            title = "Marvel Studios",
+                            tmdbId = 420,
+                            mediaType = TmdbCollectionMediaType.MOVIE,
+                            filters = TmdbCollectionFilters(
+                                withoutGenres = "16",
+                                withoutKeywords = "9715",
+                                withoutCompanies = "2",
+                                withoutWatchProviders = "8|337"
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val json = store.exportToJson(listOf(collection))
+
+        assertTrue(json.contains("\"sources\""))
+        assertTrue(json.contains("\"provider\":\"tmdb\""))
+        assertTrue(json.contains("\"tmdbSourceType\":\"COMPANY\""))
+        assertTrue(json.contains("\"tmdbId\":420"))
+        val source = store.importFromJson(json).single().folders.single().sources.single() as TmdbCollectionSource
+        assertEquals("16", source.filters.withoutGenres)
+        assertEquals("9715", source.filters.withoutKeywords)
+        assertEquals("2", source.filters.withoutCompanies)
+        assertEquals("8|337", source.filters.withoutWatchProviders)
+    }
+
+    @Test
+    fun `export and import preserve trakt public list sources`() {
+        val collection = com.playtorrio.tv.domain.model.Collection(
+            id = "collection",
+            title = "Trakt",
+            folders = listOf(
+                com.playtorrio.tv.domain.model.CollectionFolder(
+                    id = "folder",
+                    title = "Public Lists",
+                    sources = listOf(
+                        TraktCollectionSource(
+                            title = "Criterion Movies",
+                            traktListId = 123456L,
+                            mediaType = TmdbCollectionMediaType.MOVIE,
+                            sortBy = "added",
+                            sortHow = "desc"
+                        )
+                    )
+                )
+            )
+        )
+
+        val json = store.exportToJson(listOf(collection))
+        val source = store.importFromJson(json).single().folders.single().sources.single()
+
+        assertTrue(json.contains("\"provider\":\"trakt\""))
+        assertTrue(json.contains("\"traktListId\":123456"))
+        assertTrue(source is TraktCollectionSource)
+        source as TraktCollectionSource
+        assertEquals("Criterion Movies", source.title)
+        assertEquals(123456L, source.traktListId)
+        assertEquals(TmdbCollectionMediaType.MOVIE, source.mediaType)
+        assertEquals("added", source.sortBy)
+        assertEquals("desc", source.sortHow)
+    }
+
+    @Test
+    fun `validation rejects trakt sources without list id`() {
+        val json = """
+            [
+              {
+                "id": "collection",
+                "title": "Trakt",
+                "folders": [
+                  {
+                    "id": "folder",
+                    "title": "Public Lists",
+                    "sources": [
+                      {
+                        "provider": "trakt",
+                        "title": "Missing ID",
+                        "mediaType": "MOVIE"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+        """.trimIndent()
+
+        val result = store.validateCollectionsJson(json)
+
+        assertTrue(!result.valid)
+        assertTrue(result.error?.contains("Trakt list ID") == true)
+    }
+
+    @Test
+    fun `import and export preserve folder hero video url`() {
+        val collection = com.playtorrio.tv.domain.model.Collection(
+            id = "collection",
+            title = "Videos",
+            folders = listOf(
+                com.playtorrio.tv.domain.model.CollectionFolder(
+                    id = "folder",
+                    title = "Featured",
+                    heroBackdropUrl = "https://example.com/backdrop.jpg",
+                    heroVideoUrl = "https://example.com/hero.mp4",
+                    sources = listOf(
+                        AddonCatalogCollectionSource(
+                            addonId = "addon",
+                            type = "movie",
+                            catalogId = "popular"
+                        )
+                    )
+                )
+            )
+        )
+
+        val json = store.exportToJson(listOf(collection))
+        val folder = store.importFromJson(json).single().folders.single()
+
+        assertTrue(json.contains("\"heroVideoUrl\":\"https://example.com/hero.mp4\""))
+        assertEquals("https://example.com/hero.mp4", folder.heroVideoUrl)
+    }
+}

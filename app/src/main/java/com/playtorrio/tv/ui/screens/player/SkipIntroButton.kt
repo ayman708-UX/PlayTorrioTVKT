@@ -1,0 +1,245 @@
+@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+
+package com.playtorrio.tv.ui.screens.player
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Icon
+import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.playtorrio.tv.R
+import com.playtorrio.tv.data.repository.SkipInterval
+
+/**
+ * Skip Intro/Outro/Recap button for the player.
+ * Appears at bottom-left when playback is within a skip interval.
+ * Auto-hides after 10 seconds. Focusable for D-pad navigation.
+ */
+@Composable
+fun SkipIntroButton(
+    interval: SkipInterval?,
+    dismissed: Boolean,
+    controlsVisible: Boolean,
+    suppressFocus: Boolean = false,
+    canFocus: Boolean = true,
+    onSkip: () -> Unit,
+    onDismiss: () -> Unit,
+    onHideControls: (() -> Unit)? = null,
+    onVisibilityChanged: (Boolean) -> Unit = {},
+    onFocused: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
+    rightFocusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier
+) {
+
+    var lastType by remember { mutableStateOf(interval?.type) }
+    if (interval != null) lastType = interval.type
+    val hasActiveInterval = interval != null
+    val shouldShow = hasActiveInterval && (!dismissed || controlsVisible)
+
+    var autoHidden by remember { mutableStateOf(false) }
+    var manuallyDismissed by remember { mutableStateOf(false) }
+    val internalFocusRequester = remember { FocusRequester() }
+    val activeFocusRequester = focusRequester ?: internalFocusRequester
+    var isFocused by remember { mutableStateOf(false) }
+    val progress = remember { Animatable(1f) }
+
+    // Reset auto-hide and progress when interval changes
+    LaunchedEffect(interval?.startTime, interval?.type) {
+        autoHidden = false
+        manuallyDismissed = false
+        progress.snapTo(0f)
+    }
+
+    LaunchedEffect(dismissed) {
+        if (!dismissed) {
+            if (!manuallyDismissed) {
+                autoHidden = false
+                progress.snapTo(0f)
+            }
+        } else {
+            manuallyDismissed = true
+        }
+    }
+
+    // Auto-hide after 10 seconds — pause countdown while controls are visible
+    LaunchedEffect(shouldShow, autoHidden, controlsVisible) {
+        if (shouldShow && !autoHidden && !controlsVisible) {
+            progress.animateTo(1f, animationSpec = tween(
+                durationMillis = skipIntroAutoHideRemainingMs(progress.value),
+                easing = LinearEasing
+            ))
+            autoHidden = true
+        }
+    }
+
+    // Re-show when controls become visible while auto-hidden — but don't restart countdown
+    // When controls hide again and we were auto-hidden, stay hidden
+    LaunchedEffect(controlsVisible) {
+        if (!controlsVisible && autoHidden) {
+            // controls closed, stay hidden — nothing to do
+        }
+    }
+
+    val isVisible = isSkipIntroButtonVisible(
+        hasActiveInterval = hasActiveInterval,
+        dismissed = dismissed,
+        controlsVisible = controlsVisible,
+        autoHidden = autoHidden,
+    )
+
+    LaunchedEffect(isVisible) { onVisibilityChanged(isVisible) }
+
+    // Request focus when becoming visible or when controls hide
+    // but not when the next episode card has priority, and not when focus is
+    // reserved for an overlay (e.g. subtitle selection — #2874).
+    LaunchedEffect(isVisible, controlsVisible, suppressFocus, canFocus) {
+        if (isVisible && !controlsVisible && !suppressFocus && canFocus) {
+            try { activeFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.8f),
+        exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
+        modifier = modifier
+    ) {
+        Card(
+            onClick = onSkip,
+            modifier = Modifier
+                .focusRequester(activeFocusRequester)
+                .focusProperties {
+                    this.canFocus = canFocus
+                    downFocusRequester?.let { down = it }
+                    upFocusRequester?.let { up = it }
+                    rightFocusRequester?.let { right = it }
+                }
+                .onPreviewKeyEvent { keyEvent ->
+                    if (!canFocus) return@onPreviewKeyEvent false
+                    if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                        when (keyEvent.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                if (downFocusRequester != null) {
+                                    try { downFocusRequester.requestFocus() } catch (_: Exception) {}
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                // Pressing UP from Skip Intro button navigates to upFocusRequester or hides controls
+                                if (upFocusRequester != null) {
+                                    try { upFocusRequester.requestFocus() } catch (_: Exception) {}
+                                    true
+                                } else if (onHideControls != null) {
+                                    onHideControls()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                .onFocusChanged {
+                    isFocused = it.isFocused
+                    if (it.isFocused) onFocused?.invoke()
+                },
+            colors = CardDefaults.colors(
+                containerColor = Color(0xFF1E1E1E).copy(alpha = 0.85f),
+                focusedContainerColor = PlayTorrioTheme.colors.Secondary
+            ),
+            shape = CardDefaults.shape(shape = RoundedCornerShape(PlayTorrioTheme.radii.md))
+        ) {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.width(IntrinsicSize.Max)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = PlayTorrioTheme.spacing.md),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = null,
+                        tint = if (isFocused) PlayTorrioTheme.colors.OnSecondary else Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = getSkipLabel(lastType),
+                        color = if (isFocused) PlayTorrioTheme.colors.OnSecondary else Color.White,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(start = PlayTorrioTheme.spacing.sm)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PlayTorrioTheme.spacing.xs)
+                        .clip(RoundedCornerShape(bottomStart = PlayTorrioTheme.spacing.md, bottomEnd = PlayTorrioTheme.spacing.md))
+                        .background(Color.White.copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.15f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.value)
+                            .height(PlayTorrioTheme.spacing.xs)
+                            .background(Color(0xFF1E1E1E).copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.85f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun getSkipLabel(type: String?): String = when (type?.trim()?.lowercase()) {
+    "op", "opening", "mixed-op", "intro" -> stringResource(R.string.skip_intro)
+    "ed", "ending", "mixed-ed", "outro", "credits" -> stringResource(R.string.skip_ending)
+    "recap" -> stringResource(R.string.skip_recap)
+    else -> stringResource(R.string.skip_generic)
+}

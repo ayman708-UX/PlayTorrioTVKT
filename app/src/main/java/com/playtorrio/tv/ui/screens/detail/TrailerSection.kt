@@ -1,0 +1,179 @@
+package com.playtorrio.tv.ui.screens.detail
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.playtorrio.tv.R
+import com.playtorrio.tv.domain.model.ContentType
+import com.playtorrio.tv.domain.model.CardDepthSurface
+import com.playtorrio.tv.domain.model.MetaPreview
+import com.playtorrio.tv.domain.model.MetaTrailer
+import com.playtorrio.tv.domain.model.PosterShape
+import com.playtorrio.tv.ui.components.GridContentCard
+import com.playtorrio.tv.ui.components.PosterCardStyle
+
+private data class TrailerListItem(
+    val trailer: MetaTrailer,
+    val preview: MetaPreview
+)
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun TrailerSection(
+    trailers: List<MetaTrailer>,
+    posterCardCornerRadius: Dp = PlayTorrioTheme.spacing.md,
+    upFocusRequester: FocusRequester? = null,
+    sectionFocusRequester: FocusRequester? = null,
+    restoreTrailerId: String? = null,
+    restoreFocusToken: Int = 0,
+    onRestoreFocusHandled: () -> Unit = {},
+    onTrailerFocused: (MetaTrailer) -> Unit = {},
+    onTrailerClick: (MetaTrailer) -> Unit
+) {
+    if (trailers.isEmpty()) return
+
+    val trailerFallbackTitle = stringResource(R.string.detail_tab_trailer)
+    val trailerItems = remember(trailers, trailerFallbackTitle) {
+        trailers.mapNotNull { trailer ->
+            val ytId = trailer.ytId?.trim().orEmpty()
+            if (ytId.isBlank()) return@mapNotNull null
+            val title = trailer.name?.takeIf { it.isNotBlank() }
+                ?: trailer.type?.takeIf { it.isNotBlank() }
+                ?: trailerFallbackTitle
+            val subtitle = buildList {
+                trailer.type?.takeIf { it.isNotBlank() }?.let(::add)
+                trailer.lang?.takeIf { it.isNotBlank() }?.uppercase()?.let(::add)
+            }.joinToString(" • ")
+
+            TrailerListItem(
+                trailer = trailer,
+                preview = MetaPreview(
+                    id = ytId,
+                    type = ContentType.MOVIE,
+                    name = title,
+                    poster = "https://img.youtube.com/vi/$ytId/hqdefault.jpg",
+                    posterShape = PosterShape.LANDSCAPE,
+                    background = null,
+                    logo = null,
+                    description = null,
+                    releaseInfo = subtitle.ifBlank { null },
+                    imdbRating = null,
+                    genres = emptyList(),
+                    trailerYtIds = listOf(ytId),
+                    trailers = listOf(trailer)
+                )
+            )
+        }
+    }
+
+    if (trailerItems.isEmpty()) return
+
+    val firstItemFocusRequester = remember { FocusRequester() }
+    val restoreFocusRequester = remember { FocusRequester() }
+    val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+
+    LaunchedEffect(trailerItems) {
+        val validIds = trailerItems.mapTo(mutableSetOf()) { it.preview.id }
+        itemFocusRequesters.keys.retainAll(validIds)
+    }
+
+    LaunchedEffect(restoreFocusToken, restoreTrailerId, trailerItems) {
+        if (restoreFocusToken <= 0 || restoreTrailerId.isNullOrBlank()) return@LaunchedEffect
+        if (trailerItems.none { it.preview.id == restoreTrailerId }) return@LaunchedEffect
+        restoreFocusRequester.requestFocusAfterFrames()
+    }
+
+    val landscapeStyle = remember(posterCardCornerRadius) {
+        PosterCardStyle(
+            width = 260.dp,
+            height = 146.dp,
+            cornerRadius = posterCardCornerRadius,
+            focusedBorderWidth = PlayTorrioTheme.spacing.xxs,
+            focusedScale = 1.02f
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = PlayTorrioTheme.spacing.sm, bottom = PlayTorrioTheme.spacing.sm)
+    ) {
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (sectionFocusRequester != null) Modifier.focusRequester(sectionFocusRequester) else Modifier)
+                .focusRestorer { firstItemFocusRequester },
+            contentPadding = PaddingValues(horizontal = PlayTorrioTheme.spacing.xxxl, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+        ) {
+            itemsIndexed(
+                items = trailerItems,
+                key = { index, item -> item.preview.id + "|" + item.preview.name + "|" + index }
+            ) { index, item ->
+                val isRestoreTarget = item.preview.id == restoreTrailerId
+                val isFirstItem = index == 0
+                val focusRequester = when {
+                    isRestoreTarget -> restoreFocusRequester
+                    isFirstItem -> firstItemFocusRequester
+                    else -> remember(item.preview.id) {
+                        itemFocusRequesters.getOrPut(item.preview.id) { FocusRequester() }
+                    }
+                }
+
+                Column {
+                    GridContentCard(
+                        item = item.preview,
+                        onClick = { onTrailerClick(item.trailer) },
+                        posterCardStyle = landscapeStyle,
+                        showLabel = true,
+                        imageCrossfade = true,
+                        focusRequester = focusRequester,
+                        upFocusRequester = upFocusRequester,
+                        depthSurface = CardDepthSurface.TRAILERS,
+                        onFocused = {
+                            onTrailerFocused(item.trailer)
+                            if (isRestoreTarget && restoreFocusToken > 0) {
+                                onRestoreFocusHandled()
+                            }
+                        }
+                    )
+
+                    val subtitle = item.preview.releaseInfo
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PlayTorrioTheme.colors.TextTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .width(landscapeStyle.width)
+                                .padding(start = PlayTorrioTheme.spacing.xxs, end = PlayTorrioTheme.spacing.xxs, top = PlayTorrioTheme.spacing.xxs)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

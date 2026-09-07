@@ -1,0 +1,805 @@
+package com.playtorrio.tv.ui.screens.search
+
+import com.playtorrio.tv.ui.theme.PlayTorrioTheme
+import com.playtorrio.tv.ui.screens.home.HeroBackdropState
+
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import com.playtorrio.tv.ui.screens.detail.requestFocusAfterFrames
+import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.playtorrio.tv.R
+import com.playtorrio.tv.domain.model.MetaPreview
+import com.playtorrio.tv.ui.components.EmptyScreenState
+import com.playtorrio.tv.ui.components.GridContentCard
+import com.playtorrio.tv.ui.components.LoadingIndicator
+import com.playtorrio.tv.ui.components.LocalCardDepthStyle
+import com.playtorrio.tv.ui.components.PosterCardStyle
+import com.playtorrio.tv.ui.components.playtorrioCardDepth
+import com.playtorrio.tv.domain.model.CardDepthSurface
+import com.playtorrio.tv.ui.util.dpadVerticalFastScroll
+import com.playtorrio.tv.ui.util.formatAddonTypeLabel
+import com.playtorrio.tv.ui.util.localizedContentType
+import com.playtorrio.tv.ui.util.localizedGenreLabel
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+internal fun DiscoverSection(
+    uiState: SearchUiState,
+    posterCardStyle: PosterCardStyle,
+    watchedMovieIds: Set<String> = emptySet(),
+    watchedSeriesIds: Set<String> = emptySet(),
+    focusResults: Boolean,
+    showBuiltInHeader: Boolean = true,
+    firstItemFocusRequester: FocusRequester,
+    focusedItemIndex: Int,
+    shouldRestoreFocusedItem: Boolean,
+    blockFilterFocus: Boolean = false,
+    onRestoreFocusedItemHandled: () -> Unit,
+    onNavigateToDetail: (String, String, String) -> Unit,
+    onDiscoverItemFocused: (Int) -> Unit,
+    onSelectType: (String) -> Unit,
+    onSelectCatalog: (String) -> Unit,
+    onSelectGenre: (String?) -> Unit,
+    onLoadMore: () -> Unit,
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
+    modifier: Modifier = Modifier
+) {
+    val selectedCatalog = uiState.discoverCatalogs.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey }
+    val filteredCatalogs = uiState.discoverCatalogs.filter { it.type == uiState.selectedDiscoverType }
+    val genres = selectedCatalog?.genres.orEmpty()
+    var expandedPicker by remember { mutableStateOf<String?>(null) }
+    val filterFocusRequester = remember { FocusRequester() }
+    var gridHasFocus by remember { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = gridHasFocus) {
+        try { filterFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    val localContext = LocalContext.current
+    fun localizedTypeLabel(type: String): String = localizedContentType(localContext, type)
+
+    val availableTypes = remember(uiState.discoverCatalogs) {
+        uiState.discoverCatalogs.map { it.type }.distinct()
+    }
+    val selectedTypeLabel = localizedTypeLabel(uiState.selectedDiscoverType)
+    val selectedCatalogLabel = selectedCatalog?.catalogName ?: stringResource(R.string.discover_select_catalog)
+    val selectedGenreLabel = uiState.selectedDiscoverGenre?.let { localizedGenreLabel(it) } ?: stringResource(R.string.discover_genre_default)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = PlayTorrioTheme.spacing.xxxl),
+        verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+    ) {
+        Text(
+            text = stringResource(R.string.discover_title),
+            style = MaterialTheme.typography.headlineMedium,
+            color = if (showBuiltInHeader) PlayTorrioTheme.colors.TextPrimary else Color.Transparent
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
+        ) {
+            DiscoverDropdownPicker(
+                modifier = Modifier.weight(1f)
+                    .focusRequester(filterFocusRequester),
+                title = stringResource(R.string.discover_filter_type),
+                value = selectedTypeLabel,
+                selectedValue = uiState.selectedDiscoverType,
+                expanded = expandedPicker == "type",
+                options = availableTypes.map { type ->
+                    val label = localizedTypeLabel(type)
+                    DiscoverOption(label, type)
+                },
+                onExpandedChange = { shouldExpand ->
+                    expandedPicker = if (shouldExpand) "type" else null
+                },
+                onSelect = { option ->
+                    onSelectType(option.value)
+                    expandedPicker = null
+                },
+                blockFocus = blockFilterFocus
+            )
+
+            DiscoverDropdownPicker(
+                modifier = Modifier.weight(1f),
+                title = stringResource(R.string.discover_filter_catalog),
+                value = selectedCatalogLabel,
+                selectedValue = uiState.selectedDiscoverCatalogKey,
+                expanded = expandedPicker == "catalog",
+                options = filteredCatalogs.map { DiscoverOption(it.catalogName, it.key) },
+                onExpandedChange = { shouldExpand ->
+                    expandedPicker = if (shouldExpand) "catalog" else null
+                },
+                onSelect = { option ->
+                    onSelectCatalog(option.value)
+                    expandedPicker = null
+                },
+                blockFocus = blockFilterFocus
+            )
+
+            DiscoverDropdownPicker(
+                modifier = Modifier.weight(1f),
+                title = stringResource(R.string.discover_filter_genre),
+                value = selectedGenreLabel,
+                selectedValue = uiState.selectedDiscoverGenre ?: "__default__",
+                expanded = expandedPicker == "genre",
+                options = buildList {
+                    add(DiscoverOption(stringResource(R.string.discover_genre_default), "__default__"))
+                    addAll(genres.map { DiscoverOption(localizedGenreLabel(it), it) })
+                },
+                onExpandedChange = { shouldExpand ->
+                    expandedPicker = if (shouldExpand) "genre" else null
+                },
+                onSelect = { option ->
+                    onSelectGenre(option.value.takeUnless { it == "__default__" })
+                    expandedPicker = null
+                },
+                blockFocus = blockFilterFocus
+            )
+        }
+
+        selectedCatalog?.let { catalog ->
+            val metadataSegments = buildList {
+                add(catalog.addonName)
+                if (uiState.catalogTypeSuffixEnabled) {
+                    localizedTypeLabel(catalog.type)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let(::add)
+                }
+                uiState.selectedDiscoverGenre?.let { add(localizedGenreLabel(it)) }
+            }
+            Text(
+                text = metadataSegments.joinToString(" • "),
+                style = MaterialTheme.typography.bodySmall,
+                color = PlayTorrioTheme.colors.TextSecondary
+            )
+        }
+
+        when {
+            uiState.discoverLoading && uiState.discoverResults.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 28.dp, bottom = 28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator()
+                }
+            }
+
+            uiState.discoverResults.isNotEmpty() -> {
+                Box(modifier = Modifier.onFocusChanged { gridHasFocus = it.hasFocus }) {
+                DiscoverGrid(
+                    items = uiState.discoverResults,
+                    posterCardStyle = posterCardStyle,
+                    watchedMovieIds = watchedMovieIds,
+                    watchedSeriesIds = watchedSeriesIds,
+                    focusResults = focusResults,
+                    firstItemFocusRequester = firstItemFocusRequester,
+                    focusedItemIndex = focusedItemIndex,
+                    shouldRestoreFocusedItem = shouldRestoreFocusedItem,
+                    onRestoreFocusedItemHandled = onRestoreFocusedItemHandled,
+                    onItemFocused = onDiscoverItemFocused,
+                    pendingCount = uiState.pendingDiscoverResults.size,
+                    canLoadMore = uiState.discoverHasMore,
+                    isLoadingMore = uiState.discoverLoadingMore,
+                    onLoadMore = onLoadMore,
+                    onItemClick = { _, item ->
+                        HeroBackdropState.update(item.backdropUrl)
+                        onNavigateToDetail(
+                            item.id,
+                            item.apiType,
+                            selectedCatalog?.addonBaseUrl ?: ""
+                        )
+                    },
+                    onItemLongPress = { item ->
+                        onItemLongPress(item, selectedCatalog?.addonBaseUrl ?: "")
+                    },
+                    filterKey = "${uiState.selectedDiscoverType}|${uiState.selectedDiscoverCatalogKey}|${uiState.selectedDiscoverGenre}"
+                )
+                }
+            }
+
+            uiState.discoverInitialized && selectedCatalog == null -> {
+                EmptyScreenState(
+                    title = stringResource(R.string.discover_empty_no_catalog_title),
+                    subtitle = stringResource(R.string.discover_empty_no_catalog_subtitle),
+                    icon = Icons.Default.Search
+                )
+            }
+
+            uiState.discoverInitialized && !uiState.discoverLoading && selectedCatalog != null -> {
+                EmptyScreenState(
+                    title = stringResource(R.string.discover_empty_no_content_title),
+                    subtitle = stringResource(R.string.discover_empty_no_content_subtitle),
+                    icon = Icons.Default.Search
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun DiscoverDropdownPicker(
+    modifier: Modifier = Modifier,
+    title: String,
+    value: String,
+    selectedValue: String?,
+    expanded: Boolean,
+    options: List<DiscoverOption>,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (DiscoverOption) -> Unit,
+    blockFocus: Boolean = false
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var anchorSize by remember { mutableStateOf(IntSize.Zero) }
+    // Seed focused option with the current selection so reopen highlights the right row
+    // even before focus lands (fixes #2848 / incomplete #2507 race on TV).
+    var focusedOptionValue by remember(expanded) {
+        mutableStateOf(if (expanded) selectedValue else null)
+    }
+    val selectedItemFocusRequester = remember { FocusRequester() }
+    val selectedBringIntoViewRequester = remember { BringIntoViewRequester() }
+
+    // Popup content attaches focus targets a few frames after expand. A fixed 50ms
+    // delay was flaky on TV and left focus on the first item for non-top selections.
+    LaunchedEffect(expanded, selectedValue) {
+        if (!expanded || selectedValue == null) return@LaunchedEffect
+        var focused = selectedItemFocusRequester.requestFocusAfterFrames(frames = 3)
+        var attempt = 0
+        while (!focused && attempt < 6) {
+            delay(32)
+            focused = runCatching { selectedItemFocusRequester.requestFocus() }.getOrDefault(false)
+            attempt++
+        }
+        if (!focused) return@LaunchedEffect
+        runCatching { selectedBringIntoViewRequester.bringIntoView() }
+        // Material DropdownMenu may still move initial focus to the first item after
+        // the popup settles; re-assert once so long lists keep the real selection.
+        delay(48)
+        if (runCatching { selectedItemFocusRequester.requestFocus() }.getOrDefault(false)) {
+            runCatching { selectedBringIntoViewRequester.bringIntoView() }
+        }
+    }
+
+    Box(modifier = modifier) {
+        Card(
+            onClick = { onExpandedChange(!expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { anchorSize = it }
+                .onFocusChanged { state ->
+                    isFocused = state.isFocused
+                }
+                .then(
+                    if (blockFocus) Modifier.focusProperties { canFocus = false }
+                    else Modifier
+                ),
+            shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
+            colors = CardDefaults.colors(
+                containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                focusedContainerColor = PlayTorrioTheme.colors.FocusBackground
+            ),
+            border = CardDefaults.border(
+                border = Border(
+                    border = BorderStroke(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border),
+                    shape = RoundedCornerShape(14.dp)
+                ),
+                focusedBorder = Border(
+                    border = PlayTorrioTheme.focusRing.border(PlayTorrioTheme.spacing.xxs),
+                    shape = RoundedCornerShape(14.dp)
+                )
+            ),
+            scale = CardDefaults.scale(
+                focusedScale = 1.0f,
+                pressedScale = 1.0f
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.xxs)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PlayTorrioTheme.colors.TextTertiary
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) stringResource(R.string.cd_collapse, title) else stringResource(R.string.cd_expand, title),
+                        modifier = Modifier.size(20.dp),
+                        tint = if (isFocused) PlayTorrioTheme.colors.FocusRing else PlayTorrioTheme.colors.TextSecondary
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = {
+                focusedOptionValue = null
+                onExpandedChange(false)
+            },
+            modifier = Modifier
+                .width(with(LocalDensity.current) { anchorSize.width.toDp() })
+                .heightIn(max = 320.dp),
+            shape = RoundedCornerShape(14.dp),
+            containerColor = PlayTorrioTheme.colors.BackgroundCard,
+            tonalElevation = PlayTorrioTheme.spacing.none,
+            shadowElevation = PlayTorrioTheme.spacing.sm,
+            border = BorderStroke(PlayTorrioTheme.spacing.hairline, PlayTorrioTheme.colors.Border)
+        ) {
+            options.forEach { option ->
+                val isSelected = option.value == selectedValue
+                val isOptionFocused = option.value == focusedOptionValue
+                val itemTextColor = when {
+                    isOptionFocused -> PlayTorrioTheme.colors.OnSecondary
+                    isSelected -> PlayTorrioTheme.colors.TextPrimary
+                    else -> PlayTorrioTheme.colors.TextPrimary
+                }
+                val itemBackgroundColor = when {
+                    isOptionFocused -> PlayTorrioTheme.colors.Secondary
+                    isSelected -> PlayTorrioTheme.colors.FocusBackground
+                    else -> Color.Transparent
+                }
+
+                DropdownMenuItem(
+                    modifier = Modifier
+                        .then(
+                            if (isSelected) {
+                                Modifier
+                                    .focusRequester(selectedItemFocusRequester)
+                                    .bringIntoViewRequester(selectedBringIntoViewRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(horizontal = 6.dp, vertical = PlayTorrioTheme.spacing.xxs)
+                        .background(
+                            color = itemBackgroundColor,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .onFocusChanged { state ->
+                            val hasFocus = state.isFocused || state.hasFocus
+                            focusedOptionValue = when {
+                                hasFocus -> option.value
+                                focusedOptionValue == option.value -> null
+                                else -> focusedOptionValue
+                            }
+                        },
+                    text = {
+                        Text(
+                            text = option.label,
+                            color = itemTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    onClick = { onSelect(option) },
+                    colors = MenuDefaults.itemColors(
+                        textColor = itemTextColor,
+                        disabledTextColor = PlayTorrioTheme.colors.TextDisabled
+                    )
+                )
+            }
+        }
+    }
+}
+
+private data class DiscoverOption(
+    val label: String,
+    val value: String
+)
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+internal fun DiscoverGrid(
+    items: List<MetaPreview>,
+    posterCardStyle: PosterCardStyle,
+    watchedMovieIds: Set<String> = emptySet(),
+    watchedSeriesIds: Set<String> = emptySet(),
+    focusResults: Boolean,
+    firstItemFocusRequester: FocusRequester,
+    focusedItemIndex: Int,
+    shouldRestoreFocusedItem: Boolean,
+    onRestoreFocusedItemHandled: () -> Unit,
+    onItemFocused: (Int) -> Unit,
+    pendingCount: Int,
+    canLoadMore: Boolean,
+    isLoadingMore: Boolean,
+    onLoadMore: () -> Unit,
+    onItemClick: (Int, MetaPreview) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
+    filterKey: String = ""
+) {
+    val restoreFocusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+    var pendingFocusOnNewItemIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Scroll to top only when the filter combination actually changes (not on initial composition / back navigation).
+    var previousFilterKey by remember { mutableStateOf(filterKey) }
+    LaunchedEffect(filterKey) {
+        if (filterKey != previousFilterKey) {
+            gridState.scrollToItem(0, 0)
+            previousFilterKey = filterKey
+        }
+    }
+    var localRestoreFocusedItemIndex by remember { mutableStateOf(-1) }
+    var localShouldRestoreFocusedItem by remember { mutableStateOf(false) }
+    val effectiveFocusedItemIndex = if (localShouldRestoreFocusedItem) {
+        localRestoreFocusedItemIndex
+    } else {
+        focusedItemIndex
+    }
+    val effectiveShouldRestoreFocusedItem = shouldRestoreFocusedItem || localShouldRestoreFocusedItem
+    val actionType = when {
+        pendingCount > 0 -> DiscoverGridAction.ShowMore
+        isLoadingMore -> DiscoverGridAction.Loading
+        canLoadMore -> DiscoverGridAction.LoadMore
+        else -> DiscoverGridAction.None
+    }
+    val totalCells = items.size + if (actionType != DiscoverGridAction.None) 1 else 0
+    val hasActionCell = actionType != DiscoverGridAction.None
+
+    val adaptiveStyle = remember(posterCardStyle) {
+        val cardWidth = posterCardStyle.width
+        posterCardStyle.copy(
+            width = cardWidth,
+            height = cardWidth * 1.5f
+        )
+    }
+
+    LaunchedEffect(effectiveShouldRestoreFocusedItem, effectiveFocusedItemIndex, totalCells) {
+        if (!effectiveShouldRestoreFocusedItem) return@LaunchedEffect
+        if (effectiveFocusedItemIndex !in 0 until totalCells) {
+            if (localShouldRestoreFocusedItem) {
+                localShouldRestoreFocusedItem = false
+                localRestoreFocusedItemIndex = -1
+            } else {
+                onRestoreFocusedItemHandled()
+            }
+            return@LaunchedEffect
+        }
+        try {
+            restoreFocusRequester.requestFocus()
+        } catch (_: Exception) {
+        }
+        repeat(2) { withFrameNanos { } }
+        try {
+            restoreFocusRequester.requestFocus()
+        } catch (_: Exception) {
+        }
+        if (localShouldRestoreFocusedItem) {
+            localShouldRestoreFocusedItem = false
+            localRestoreFocusedItemIndex = -1
+        } else {
+            onRestoreFocusedItemHandled()
+        }
+    }
+
+    LaunchedEffect(items.size, pendingFocusOnNewItemIndex) {
+        val targetIndex = pendingFocusOnNewItemIndex ?: return@LaunchedEffect
+        if (items.size <= targetIndex) return@LaunchedEffect
+        pendingFocusOnNewItemIndex = null
+        localRestoreFocusedItemIndex = targetIndex
+        localShouldRestoreFocusedItem = true
+    }
+
+    // Infinite scroll: auto-load more when the user scrolls near the end.
+    val shouldAutoLoad = canLoadMore && !isLoadingMore && items.isNotEmpty()
+    LaunchedEffect(gridState.firstVisibleItemIndex, items.size, shouldAutoLoad) {
+        if (!shouldAutoLoad) return@LaunchedEffect
+        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
+        if (lastVisible >= items.size - 6) {
+            onLoadMore()
+        }
+    }
+
+    // Per-item FocusRequesters for focusRestorer on the grid.
+    // Pre-create the requester for the focused item so focusRestorer can use it
+    // even before the grid items are composed (first return from navigation).
+    val itemFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    val focusedItemRequester = remember(focusedItemIndex) {
+        itemFocusRequesters.getOrPut(focusedItemIndex) { FocusRequester() }
+    }
+
+    // Column the user was navigating in at the moment fast-scroll engaged.
+    // Captured on drag-start (see onFastScrollingChanged below) because the
+    // originally-focused card will have scrolled out of visibleItemsInfo by
+    // the time landing runs — looking it up at landing time is unreliable
+    // and was causing focus to jump to a different column after long drags.
+    var fastScrollStartColumn by remember { mutableStateOf<Int?>(null) }
+
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Adaptive(minSize = adaptiveStyle.width),
+        modifier = Modifier.fillMaxSize()
+            .focusRestorer { focusedItemRequester }
+            .dpadVerticalFastScroll(
+                scrollableState = gridState,
+                onFastScrollingChanged = { active ->
+                    // Only snapshot on drag-start. The modifier fires
+                    // active=false BEFORE it calls resolveVerticalLanding,
+                    // so clearing here would wipe the column right before
+                    // landing reads it. Next drag-start will overwrite.
+                    if (active) {
+                        fastScrollStartColumn = gridState.layoutInfo
+                            .visibleItemsInfo
+                            .firstOrNull { it.index == focusedItemIndex }
+                            ?.column
+                    }
+                },
+                resolveVerticalLanding = { sign ->
+                    // Keep the user on the column they were navigating in
+                    // so fast-scroll feels like a single vertical strip,
+                    // not a teleport to an arbitrary cell in the viewport.
+                    // Exclude the action (Load More / Loading) cell up front
+                    // — it lives at index == items.size and when items.size
+                    // % columns == 0 it lands at column 0 of a brand-new
+                    // tail row, which would otherwise hijack every column-0
+                    // landing and bounce focus to the last content cell.
+                    val contentVisible = gridState.layoutInfo.visibleItemsInfo
+                        .filter { it.index < items.size }
+                    if (contentVisible.isEmpty()) {
+                        null
+                    } else {
+                        val col = fastScrollStartColumn
+                        val sameColumn = if (col != null) {
+                            contentVisible.filter { it.column == col }
+                        } else {
+                            emptyList()
+                        }
+                        val target = when {
+                            sameColumn.isNotEmpty() && sign > 0 -> sameColumn.last()
+                            sameColumn.isNotEmpty() && sign < 0 -> sameColumn.first()
+                            sign > 0 -> contentVisible.last()
+                            else -> contentVisible.first()
+                        }
+                        val requester = itemFocusRequesters[target.index]
+                        runCatching { requester?.requestFocus() }
+                        null // Discover uses imperative requestFocus for now
+                    }
+                }
+            ),
+        contentPadding = PaddingValues(bottom = PlayTorrioTheme.spacing.xxl),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.lg)
+    ) {
+        itemsIndexed(
+            items = items,
+            key = { index, item -> item.id.ifEmpty { "discover_$index" } },
+            contentType = { _, _ -> "content_card" }
+        ) { index, item ->
+            val itemFocusReq = remember(index) { itemFocusRequesters.getOrPut(index) { FocusRequester() } }
+            val focusReq = when {
+                effectiveShouldRestoreFocusedItem && index == effectiveFocusedItemIndex -> restoreFocusRequester
+                focusResults && index == 0 -> firstItemFocusRequester
+                else -> itemFocusReq
+            }
+            GridContentCard(
+                item = item,
+                onClick = { onItemClick(index, item) },
+                onLongPress = { onItemLongPress(item) },
+                posterCardStyle = adaptiveStyle,
+                isWatched = run {
+                    val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
+                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+                },
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .width(adaptiveStyle.width),
+                focusRequester = focusReq,
+                onFocused = {
+                    onItemFocused(index)
+                }
+            )
+        }
+
+        if (hasActionCell) {
+            item(
+                key = "discover_action",
+                contentType = "action_card"
+            ) {
+                val actionIndex = items.size
+                val focusReq = when {
+                    effectiveShouldRestoreFocusedItem && actionIndex == effectiveFocusedItemIndex -> restoreFocusRequester
+                    focusResults && items.isEmpty() -> firstItemFocusRequester
+                    else -> null
+                }
+                DiscoverActionCard(
+                    actionType = actionType,
+                    posterCardStyle = adaptiveStyle,
+                    modifier = Modifier
+                        .padding(top = 3.dp)
+                        .width(adaptiveStyle.width),
+                    focusRequester = focusReq,
+                    onFocused = { onItemFocused(actionIndex) },
+                    onClick = {
+                        when (actionType) {
+                            DiscoverGridAction.ShowMore -> {
+                                pendingFocusOnNewItemIndex = items.size
+                                onLoadMore()
+                            }
+                            DiscoverGridAction.LoadMore -> {
+                                pendingFocusOnNewItemIndex = items.size
+                                onLoadMore()
+                            }
+                            DiscoverGridAction.Loading -> Unit
+                            DiscoverGridAction.None -> Unit
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+private sealed class DiscoverGridAction {
+    object None : DiscoverGridAction()
+    object ShowMore : DiscoverGridAction()
+    object LoadMore : DiscoverGridAction()
+    object Loading : DiscoverGridAction()
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DiscoverActionCard(
+    actionType: DiscoverGridAction,
+    posterCardStyle: PosterCardStyle,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit
+) {
+    val cardShape = RoundedCornerShape(posterCardStyle.cornerRadius)
+    val title = when (actionType) {
+        DiscoverGridAction.ShowMore -> stringResource(R.string.discover_load_more)
+        DiscoverGridAction.LoadMore -> stringResource(R.string.discover_load_more)
+        DiscoverGridAction.Loading -> stringResource(R.string.discover_loading)
+        DiscoverGridAction.None -> ""
+    }
+    val cardDepthStyle = LocalCardDepthStyle.current
+
+    Column(
+        modifier = modifier.width(posterCardStyle.width)
+    ) {
+        Card(
+            onClick = onClick,
+            modifier = Modifier
+                .width(posterCardStyle.width)
+                .height(posterCardStyle.height)
+                .focusProperties { canFocus = actionType != DiscoverGridAction.Loading }
+                .onPreviewKeyEvent { event ->
+                    actionType != DiscoverGridAction.None &&
+                        event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&
+                        event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                }
+                .onFocusChanged { state -> if (state.isFocused) onFocused() }
+                .then(
+                    if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                    else Modifier
+                ),
+            shape = CardDefaults.shape(shape = cardShape),
+            colors = CardDefaults.colors(
+                containerColor = PlayTorrioTheme.colors.BackgroundCard,
+                focusedContainerColor = PlayTorrioTheme.colors.FocusBackground
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = PlayTorrioTheme.focusRing.border(posterCardStyle.focusedBorderWidth),
+                    shape = cardShape
+                )
+            ),
+            scale = CardDefaults.scale(focusedScale = posterCardStyle.focusedScale)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(cardShape)
+                    .playtorrioCardDepth(
+                        shape = cardShape,
+                        surface = CardDepthSurface.POSTERS,
+                        style = cardDepthStyle
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (actionType == DiscoverGridAction.Loading) {
+                    LoadingIndicator()
+                } else {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PlayTorrioTheme.colors.TextPrimary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        // Reserve space for label to match GridContentCard height
+        Spacer(
+            modifier = Modifier
+                .width(posterCardStyle.width)
+                .padding(top = PlayTorrioTheme.spacing.sm)
+                .height(MaterialTheme.typography.titleMedium.lineHeight.value.dp)
+        )
+    }
+}

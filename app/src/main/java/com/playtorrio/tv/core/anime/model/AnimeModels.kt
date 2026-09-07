@@ -35,7 +35,9 @@ data class AnimeMedia(
     val characters: List<AnimeCharacter> = emptyList(),
     val relations: List<AnimeRelation> = emptyList(),
     val recommendations: List<AnimeMedia> = emptyList(),
-    val isAdult: Boolean = false
+    val isAdult: Boolean = false,
+    val slug: String = "",
+    val isArabic: Boolean = false
 ) {
     val displayTitle: String
         get() {
@@ -147,7 +149,9 @@ data class AnimeEpisode(
     val title: String = "",
     val thumbnail: String = "",
     val description: String = "",
-    val isFiller: Boolean = false
+    val isFiller: Boolean = false,
+    val encodedHref: String = "",
+    val watchPath: String = ""
 ) {
     val displayTitle: String
         get() {

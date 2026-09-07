@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -150,11 +151,36 @@ class WatchHentaiExtractor(private val client: OkHttpClient) {
 
                 val stream = directMatch?.groupValues?.get(1)
                 if (!stream.isNullOrBlank()) {
+                    val tracks = mutableListOf<AnimeStreamTrack>()
+                    val tracksMatch = Regex("""tracks:\s*(\[[^\]]+\])""").find(jwHtml)
+                    if (tracksMatch != null) {
+                        try {
+                            val tracksArr = org.json.JSONArray(tracksMatch.groupValues[1])
+                            for (i in 0 until tracksArr.length()) {
+                                val t = tracksArr.optJSONObject(i) ?: continue
+                                val f = t.optString("file").ifBlank { t.optString("url") }
+                                val kind = t.optString("kind", "subtitles")
+                                if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                    tracks.add(
+                                        AnimeStreamTrack(
+                                            url = f,
+                                            label = t.optString("label", "English"),
+                                            lang = t.optString("lang", "en"),
+                                            kind = kind,
+                                            isDefault = t.optBoolean("default", false)
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     return@withContext AnimeStreamResult(
                         streamUrl = stream,
                         serverName = "WatchHentai",
                         category = "SUB",
                         quality = "1080p",
+                        tracks = tracks,
                         isDirectMp4 = stream.contains(".mp4"),
                         headers = mapOf(
                             "User-Agent" to USER_AGENT,

@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -112,11 +113,33 @@ class OneTwoThreeAnimeExtractor(private val client: OkHttpClient) {
                                             }
 
                                             if (!streamUrl.isNullOrBlank() && streamUrl.startsWith("http")) {
+                                                val tracks = mutableListOf<AnimeStreamTrack>()
+                                                val tracksArr = sJson.optJSONArray("tracks")
+                                                if (tracksArr != null) {
+                                                    for (tIdx in 0 until tracksArr.length()) {
+                                                        val t = tracksArr.optJSONObject(tIdx) ?: continue
+                                                        val f = t.optString("file").ifBlank { t.optString("url") }
+                                                        val k = t.optString("kind", "subtitles")
+                                                        if (f.isNotBlank() && !k.equals("thumbnails", ignoreCase = true)) {
+                                                            tracks.add(
+                                                                AnimeStreamTrack(
+                                                                    url = f,
+                                                                    label = t.optString("label", "English"),
+                                                                    lang = t.optString("lang", "en"),
+                                                                    kind = k,
+                                                                    isDefault = t.optBoolean("default", false)
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
                                                 return@withContext AnimeStreamResult(
                                                     streamUrl = streamUrl,
                                                     serverName = "123Anime (EchoVideo)",
                                                     category = "SUB",
                                                     quality = "1080p",
+                                                    tracks = tracks,
                                                     headers = mapOf(
                                                         "Referer" to "https://play2.echovideo.ru/",
                                                         "Origin" to "https://play2.echovideo.ru",

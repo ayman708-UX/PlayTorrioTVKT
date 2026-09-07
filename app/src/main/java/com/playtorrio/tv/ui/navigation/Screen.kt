@@ -165,16 +165,38 @@ sealed class Screen(val route: String) {
         private fun encode(value: String): String =
             java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-        fun createRoute(animeId: Int, heroBackdropUrl: String? = null): String {
+        fun createRoute(animeId: String, heroBackdropUrl: String? = null): String {
+            val encId = encode(animeId)
             val encodedBackdrop = heroBackdropUrl?.let { encode(it) } ?: ""
-            return "anime_detail/$animeId?heroBackdropUrl=$encodedBackdrop"
+            return "anime_detail/$encId?heroBackdropUrl=$encodedBackdrop"
         }
+
+        fun createRoute(animeId: Int, heroBackdropUrl: String? = null): String =
+            createRoute(animeId.toString(), heroBackdropUrl)
     }
     data object AnimeStream : Screen(
         "anime_stream/{animeId}/{episodeNumber}?title={title}&poster={poster}&backdrop={backdrop}&episodeTitle={episodeTitle}&totalEpisodes={totalEpisodes}&isAdult={isAdult}"
     ) {
         private fun encode(value: String): String =
             java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(
+            animeId: String,
+            episodeNumber: Int,
+            title: String,
+            poster: String? = null,
+            backdrop: String? = null,
+            episodeTitle: String? = null,
+            totalEpisodes: Int = 0,
+            isAdult: Boolean = false
+        ): String {
+            val encId = encode(animeId)
+            val encTitle = encode(title)
+            val encPoster = poster?.let { encode(it) } ?: ""
+            val encBackdrop = backdrop?.let { encode(it) } ?: ""
+            val encEpTitle = episodeTitle?.let { encode(it) } ?: ""
+            return "anime_stream/$encId/$episodeNumber?title=$encTitle&poster=$encPoster&backdrop=$encBackdrop&episodeTitle=$encEpTitle&totalEpisodes=$totalEpisodes&isAdult=$isAdult"
+        }
 
         fun createRoute(
             animeId: Int,
@@ -185,13 +207,16 @@ sealed class Screen(val route: String) {
             episodeTitle: String? = null,
             totalEpisodes: Int = 0,
             isAdult: Boolean = false
-        ): String {
-            val encTitle = encode(title)
-            val encPoster = poster?.let { encode(it) } ?: ""
-            val encBackdrop = backdrop?.let { encode(it) } ?: ""
-            val encEpTitle = episodeTitle?.let { encode(it) } ?: ""
-            return "anime_stream/$animeId/$episodeNumber?title=$encTitle&poster=$encPoster&backdrop=$encBackdrop&episodeTitle=$encEpTitle&totalEpisodes=$totalEpisodes&isAdult=$isAdult"
-        }
+        ): String = createRoute(
+            animeId = animeId.toString(),
+            episodeNumber = episodeNumber,
+            title = title,
+            poster = poster,
+            backdrop = backdrop,
+            episodeTitle = episodeTitle,
+            totalEpisodes = totalEpisodes,
+            isAdult = isAdult
+        )
     }
     data object Discover : Screen("discover")
     data object Library : Screen("library")

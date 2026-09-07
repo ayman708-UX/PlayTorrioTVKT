@@ -13,13 +13,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 object IptvAliveChecker {
-    private const val MIN_BYTES = 16 * 1024
-    private const val MAX_BYTES = 64 * 1024
+    private const val MIN_BYTES = 2 * 1024
+    private const val MAX_BYTES = 8 * 1024
     private const val CONCURRENCY = 20
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(2500, TimeUnit.MILLISECONDS)
+        .readTimeout(2500, TimeUnit.MILLISECONDS)
         .followRedirects(true)
         .build()
 

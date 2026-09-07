@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -81,6 +82,7 @@ class LunaExtractor(private val client: OkHttpClient) {
                         val parsed = parseRscResponse(bodyText) ?: return@use
                         val sources = parsed.optJSONArray("sources") ?: return@use
 
+                        val globalSubs = parsed.optJSONArray("subtitles") ?: parsed.optJSONArray("tracks")
                         for (i in 0 until sources.length()) {
                             val sObj = sources.optJSONObject(i) ?: continue
                             var streamUrl = sObj.optString("url")
@@ -90,12 +92,35 @@ class LunaExtractor(private val client: OkHttpClient) {
                                     "https://api.luna-stream.me"
                                 )
                                 val q = sObj.optString("quality").ifBlank { "1080p" }
+
+                                val tracks = mutableListOf<AnimeStreamTrack>()
+                                val subArr = sObj.optJSONArray("subtitles") ?: sObj.optJSONArray("tracks") ?: globalSubs
+                                if (subArr != null) {
+                                    for (tIdx in 0 until subArr.length()) {
+                                        val t = subArr.optJSONObject(tIdx) ?: continue
+                                        val f = t.optString("url").ifBlank { t.optString("file") }
+                                        val kind = t.optString("kind", "subtitles")
+                                        if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                            tracks.add(
+                                                AnimeStreamTrack(
+                                                    url = f,
+                                                    label = t.optString("label", t.optString("lang", "Subtitles")),
+                                                    lang = t.optString("lang", "en"),
+                                                    kind = kind,
+                                                    isDefault = t.optBoolean("default", false)
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
                                 providerResults.add(
                                     AnimeStreamResult(
                                         streamUrl = streamUrl,
                                         serverName = "Luna ($providerName)",
                                         category = subtype.uppercase(),
                                         quality = q,
+                                        tracks = tracks,
                                         headers = mapOf(
                                             "User-Agent" to USER_AGENT,
                                             "Referer" to "https://luna-stream.me/",

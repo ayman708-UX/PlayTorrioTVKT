@@ -77,17 +77,46 @@ class VidNestExtractor(private val client: OkHttpClient) {
                     json.optJSONObject("data")
                 } ?: return@withContext results
 
+                val proxyHeaders = JSONObject().apply {
+                    put("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0")
+                    put("accept", "*/*")
+                    put("origin", "https://megaplay.buzz")
+                    put("referer", "https://megaplay.buzz/")
+                }.toString()
+
+                val tracks = mutableListOf<com.playtorrio.tv.core.anime.model.AnimeStreamTrack>()
+                val tracksArr = dataObj.optJSONArray("tracks")
+                if (tracksArr != null) {
+                    for (i in 0 until tracksArr.length()) {
+                        val t = tracksArr.optJSONObject(i) ?: continue
+                        val f = t.optString("file").ifBlank { t.optString("url") }
+                        val k = t.optString("kind", "subtitles")
+                        if (f.isNotBlank() && !k.equals("thumbnails", ignoreCase = true)) {
+                            val trackUrl = if (f.contains("cdn.imgnex.top") || f.contains("megacloud")) {
+                                "https://megacloud.animanga.fun/ts-proxy?url=${java.net.URLEncoder.encode(f, "UTF-8")}&headers=${java.net.URLEncoder.encode(proxyHeaders, "UTF-8")}"
+                            } else {
+                                f
+                            }
+                            tracks.add(
+                                com.playtorrio.tv.core.anime.model.AnimeStreamTrack(
+                                    url = trackUrl,
+                                    label = t.optString("label", "English"),
+                                    lang = t.optString("lang", "en"),
+                                    kind = k,
+                                    isDefault = t.optBoolean("default", false)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                val introObj = dataObj.optJSONObject("intro")
+                val outroObj = dataObj.optJSONObject("outro")
+
                 val sources = dataObj.optJSONArray("sources") ?: return@withContext results
                 if (sources.length() > 0) {
                     val file = sources.optJSONObject(0)?.optString("file")
                     if (!file.isNullOrBlank()) {
-                        val proxyHeaders = JSONObject().apply {
-                            put("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0")
-                            put("accept", "*/*")
-                            put("origin", "https://megaplay.buzz")
-                            put("referer", "https://megaplay.buzz/")
-                        }.toString()
-
                         val proxiedUrl = "https://megacloud.animanga.fun/proxy?url=${java.net.URLEncoder.encode(file, "UTF-8")}&headers=${java.net.URLEncoder.encode(proxyHeaders, "UTF-8")}"
 
                         results.add(
@@ -96,6 +125,11 @@ class VidNestExtractor(private val client: OkHttpClient) {
                                 serverName = "VidNest (HiAnime)",
                                 category = catParam.uppercase(),
                                 quality = "1080p",
+                                tracks = tracks,
+                                introStart = introObj?.optInt("start"),
+                                introEnd = introObj?.optInt("end"),
+                                outroStart = outroObj?.optInt("start"),
+                                outroEnd = outroObj?.optInt("end"),
                                 headers = mapOf(
                                     "User-Agent" to USER_AGENT,
                                     "Referer" to "$BASE_URL/",

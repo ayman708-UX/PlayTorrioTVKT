@@ -3,43 +3,23 @@ package com.playtorrio.tv.updater
 import com.playtorrio.tv.data.remote.dto.GitHubReleaseDto
 
 internal object ReleaseSelector {
-    private val prereleaseNamePattern = Regex(
-        "(?:^|[\\s._-])(alpha|beta|rc|preview)(?:[\\s._-]|$)",
-        RegexOption.IGNORE_CASE
-    )
 
     fun eligibleReleases(
         releases: List<GitHubReleaseDto>,
-        channel: UpdateChannel
+        channel: UpdateChannel = UpdateChannel.STABLE
     ): List<GitHubReleaseDto> = releases
-        .asSequence()
         .filterNot(GitHubReleaseDto::draft)
-        .mapNotNull { release ->
-            val version = releaseVersion(release) ?: return@mapNotNull null
-            ReleaseCandidate(
-                release = release,
-                version = version,
-                prerelease = isPrerelease(release, version)
-            )
+        .filter { release ->
+            VersionUtils.parse(release.tagName) != null || VersionUtils.parse(release.name) != null
         }
-        .filter { candidate -> channel == UpdateChannel.BETA || !candidate.prerelease }
-        .sortedByDescending(ReleaseCandidate::version)
-        .map(ReleaseCandidate::release)
-        .toList()
-
-    private fun releaseVersion(release: GitHubReleaseDto): SemanticVersion? =
-        VersionUtils.parse(release.tagName) ?: VersionUtils.parse(release.name)
-
-    private fun isPrerelease(
-        release: GitHubReleaseDto,
-        version: SemanticVersion
-    ): Boolean = release.prerelease ||
-        version.prerelease.isNotEmpty() ||
-        prereleaseNamePattern.containsMatchIn(release.name.orEmpty())
-
-    private data class ReleaseCandidate(
-        val release: GitHubReleaseDto,
-        val version: SemanticVersion,
-        val prerelease: Boolean
-    )
+        .sortedWith { a, b ->
+            val vA = VersionUtils.parse(a.tagName) ?: VersionUtils.parse(a.name)
+            val vB = VersionUtils.parse(b.tagName) ?: VersionUtils.parse(b.name)
+            when {
+                vA != null && vB != null -> vB.compareTo(vA)
+                vA != null -> -1
+                vB != null -> 1
+                else -> 0
+            }
+        }
 }

@@ -10,14 +10,14 @@ class TrackingSourcesTest {
     @Test
     fun `legacy source names retain their stored meaning`() {
         assertEquals(WatchProgressSource.TRAKT, WatchProgressSource.fromStorage("TRAKT"))
-        assertEquals(WatchProgressSource.PLAYTORRIO_SYNC, WatchProgressSource.fromStorage("PLAYTORRIO_SYNC"))
+        assertEquals(WatchProgressSource.SIMKL, WatchProgressSource.fromStorage("SIMKL"))
         assertEquals(LibrarySourceMode.TRAKT, LibrarySourceMode.valueOf("TRAKT"))
     }
 
     @Test
-    fun `remote watch source falls back to PlayTorrio Sync when disconnected`() {
+    fun `remote watch source falls back to Trakt when disconnected`() {
         assertEquals(
-            WatchProgressSource.PLAYTORRIO_SYNC,
+            WatchProgressSource.TRAKT,
             effectiveWatchProgressSource(WatchProgressSource.SIMKL) { false }
         )
         assertEquals(
@@ -40,7 +40,6 @@ class TrackingSourcesTest {
 
     @Test
     fun `local sources do not map to remote providers`() {
-        assertNull(WatchProgressSource.PLAYTORRIO_SYNC.providerId)
         assertNull(LibrarySourceMode.LOCAL.providerId)
     }
 
@@ -53,14 +52,14 @@ class TrackingSourcesTest {
 
         assertEquals(
             TrackingSourceSelection(
-                WatchProgressSource.PLAYTORRIO_SYNC,
+                WatchProgressSource.TRAKT,
                 LibrarySourceMode.LOCAL
             ),
             effectiveTrackingSourceSelection(requested, emptySet())
         )
         assertEquals(
             TrackingSourceSelection(
-                WatchProgressSource.PLAYTORRIO_SYNC,
+                WatchProgressSource.TRAKT,
                 LibrarySourceMode.TRAKT
             ),
             effectiveTrackingSourceSelection(requested, setOf(TrackingProviderId.TRAKT))
@@ -90,7 +89,7 @@ class TrackingSourcesTest {
 
         assertEquals(
             TrackingSourceSelection(
-                watchProgressSource = WatchProgressSource.PLAYTORRIO_SYNC,
+                watchProgressSource = WatchProgressSource.TRAKT,
                 librarySourceMode = LibrarySourceMode.TRAKT
             ),
             effectiveTrackingSourceSelection(
@@ -117,12 +116,11 @@ class TrackingSourcesTest {
     }
 
     @Test
-    fun `both connected pickers expose PlayTorrio Trakt and Simkl in stable order`() {
+    fun `both connected pickers expose Trakt and Simkl in stable order`() {
         val connected = setOf(TrackingProviderId.TRAKT, TrackingProviderId.SIMKL)
 
         assertEquals(
             listOf(
-                WatchProgressSource.PLAYTORRIO_SYNC,
                 WatchProgressSource.TRAKT,
                 WatchProgressSource.SIMKL
             ),
@@ -141,7 +139,7 @@ class TrackingSourcesTest {
     @Test
     fun `disconnected providers are excluded from source pickers`() {
         assertEquals(
-            listOf(WatchProgressSource.PLAYTORRIO_SYNC),
+            listOf(WatchProgressSource.TRAKT),
             availableWatchProgressSources(emptySet())
         )
         assertEquals(
@@ -149,7 +147,7 @@ class TrackingSourcesTest {
             availableLibrarySourceModes(emptySet())
         )
         assertEquals(
-            listOf(WatchProgressSource.PLAYTORRIO_SYNC, WatchProgressSource.SIMKL),
+            listOf(WatchProgressSource.SIMKL),
             availableWatchProgressSources(setOf(TrackingProviderId.SIMKL))
         )
         assertEquals(

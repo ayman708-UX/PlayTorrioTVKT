@@ -175,7 +175,8 @@ class StreamRepositoryPluginIsolationTest {
                 tmdbService = tmdbService,
                 debridStreamPresentation = presentation,
                 localDebridAvailabilityService = availability,
-                playTorrioHttpScraperManager = mockk(relaxed = true)
+                playTorrioHttpScraperManager = mockk(relaxed = true),
+                playTorrioP2PScraperManager = mockk(relaxed = true)
             ),
             api = api,
             tmdbService = tmdbService,

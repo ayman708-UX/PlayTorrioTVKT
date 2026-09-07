@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -210,11 +211,48 @@ class AniDbExtractor(private val client: OkHttpClient) {
             val masterUrl = fileMatch?.groupValues?.get(1)
 
             if (!masterUrl.isNullOrBlank() && masterUrl.startsWith("http")) {
+                val tracks = mutableListOf<AnimeStreamTrack>()
+                val tracksMatch = Regex("""tracks:\s*(\[[^\]]+\])""").find(embedHtml)
+                if (tracksMatch != null) {
+                    try {
+                        val tracksArr = org.json.JSONArray(tracksMatch.groupValues[1])
+                        for (i in 0 until tracksArr.length()) {
+                            val t = tracksArr.optJSONObject(i) ?: continue
+                            val f = t.optString("file").ifBlank { t.optString("url") }
+                            val kind = t.optString("kind", "subtitles")
+                            if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                tracks.add(
+                                    AnimeStreamTrack(
+                                        url = f,
+                                        label = t.optString("label", "English"),
+                                        lang = t.optString("lang", "en"),
+                                        kind = kind,
+                                        isDefault = t.optBoolean("default", false)
+                                    )
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (tracks.isEmpty()) {
+                    val trackRegex = Regex("""<track[^>]+src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+                    for (m in trackRegex.findAll(embedHtml)) {
+                        val trackTag = m.value
+                        val src = m.groupValues[1]
+                        if (src.isNotBlank() && !trackTag.contains("thumbnails", ignoreCase = true) && tracks.none { it.url == src }) {
+                            val label = Regex("""label=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "Subtitles"
+                            val srclang = Regex("""srclang=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "en"
+                            tracks.add(AnimeStreamTrack(url = src, label = label, lang = srclang))
+                        }
+                    }
+                }
+
                 return@withContext AnimeStreamResult(
                     streamUrl = masterUrl,
                     serverName = "AniDB",
                     category = cat.uppercase(),
                     quality = "1080p",
+                    tracks = tracks,
                     headers = mapOf(
                         "Referer" to "$BASE_URL/",
                         "Origin" to BASE_URL,

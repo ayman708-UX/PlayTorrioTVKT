@@ -71,8 +71,28 @@ internal object VersionUtils {
     fun isPrerelease(raw: String?): Boolean = parse(raw)?.prerelease?.isNotEmpty() == true
 
     fun isRemoteNewer(remote: String?, local: String?): Boolean {
-        val remoteVersion = parse(remote) ?: return false
-        val localVersion = parse(local) ?: return false
-        return remoteVersion > localVersion
+        if (remote.isNullOrBlank() || local.isNullOrBlank()) return false
+        val cleanRemote = normalize(remote)
+        val cleanLocal = normalize(local)
+
+        // Same tag = no update
+        if (cleanRemote.equals(cleanLocal, ignoreCase = true)) {
+            return false
+        }
+
+        // Semantic version comparison if both are valid semver
+        val remoteVersion = parse(cleanRemote)
+        val localVersion = parse(cleanLocal)
+        if (remoteVersion != null && localVersion != null) {
+            return remoteVersion > localVersion
+        }
+
+        // If local is valid version but remote is unparseable tag, do not offer
+        if (remoteVersion == null && localVersion != null) {
+            return false
+        }
+
+        // New tag = new update
+        return true
     }
 }

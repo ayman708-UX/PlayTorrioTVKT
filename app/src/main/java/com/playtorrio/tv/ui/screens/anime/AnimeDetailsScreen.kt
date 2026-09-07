@@ -48,9 +48,9 @@ import kotlin.math.roundToInt
 fun AnimeDetailsScreen(
     viewModel: AnimeDetailsViewModel = hiltViewModel(),
     onBackPress: () -> Unit,
-    onNavigateToDetail: (Int) -> Unit,
+    onNavigateToDetail: (String) -> Unit,
     onNavigateToStream: (
-        animeId: Int,
+        animeId: String,
         episodeNumber: Int,
         title: String,
         poster: String?,
@@ -315,7 +315,7 @@ fun AnimeDetailsScreen(
                         onClick = {
                             val firstEp = uiState.episodes.firstOrNull()?.number ?: 1
                             onNavigateToStream(
-                                anime.id,
+                                anime.slug.ifBlank { anime.id.toString() },
                                 firstEp,
                                 anime.displayTitle,
                                 anime.coverUrl,
@@ -541,7 +541,7 @@ fun AnimeDetailsScreen(
                                     fallbackBackdrop = anime.backdropUrl,
                                     onClick = {
                                         onNavigateToStream(
-                                            anime.id,
+                                            anime.slug.ifBlank { anime.id.toString() },
                                             ep.number,
                                             anime.displayTitle,
                                             anime.coverUrl,
@@ -609,7 +609,7 @@ fun AnimeDetailsScreen(
                             items(anime.relations, key = { "rel_${it.id}" }) { rel ->
                                 AnimeRelationCard(
                                     relation = rel,
-                                    onClick = { onNavigateToDetail(rel.id) }
+                                    onClick = { onNavigateToDetail(rel.id.toString()) }
                                 )
                             }
                         }
@@ -640,7 +640,7 @@ fun AnimeDetailsScreen(
                             items(anime.recommendations, key = { "rec_${it.id}" }) { rec ->
                                 ContentCard(
                                     item = rec.toMetaPreview(),
-                                    onClick = { onNavigateToDetail(rec.id) },
+                                    onClick = { onNavigateToDetail(rec.slug.ifBlank { rec.id.toString() }) },
                                     posterCardStyle = posterCardStyle,
                                     focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled
                                 )

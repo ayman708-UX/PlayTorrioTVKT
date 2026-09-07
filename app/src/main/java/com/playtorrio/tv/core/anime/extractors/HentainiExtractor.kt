@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -66,11 +67,30 @@ class HentainiExtractor(private val client: OkHttpClient) {
                                                 ?.ifBlank { attributes.optString("streamUrl") }
 
                                             if (!videoUrl.isNullOrBlank() && videoUrl.startsWith("http")) {
+                                                val tracks = mutableListOf<AnimeStreamTrack>()
+                                                val subArr = attributes?.optJSONArray("subtitles") ?: attributes?.optJSONArray("tracks")
+                                                if (subArr != null) {
+                                                    for (tIdx in 0 until subArr.length()) {
+                                                        val t = subArr.optJSONObject(tIdx) ?: continue
+                                                        val f = t.optString("url").ifBlank { t.optString("file") }
+                                                        if (f.isNotBlank()) {
+                                                            tracks.add(
+                                                                AnimeStreamTrack(
+                                                                    url = f,
+                                                                    label = t.optString("label", "English"),
+                                                                    lang = t.optString("lang", "en")
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
                                                 return@withContext AnimeStreamResult(
                                                     streamUrl = videoUrl,
                                                     serverName = "Hentaini",
                                                     category = "SUB",
                                                     quality = "1080p",
+                                                    tracks = tracks,
                                                     isDirectMp4 = videoUrl.contains(".mp4"),
                                                     headers = mapOf(
                                                         "User-Agent" to USER_AGENT,

@@ -26,9 +26,11 @@ import com.playtorrio.tv.ui.screens.home.HomeScreen
 import com.playtorrio.tv.ui.screens.addon.AddonManagerScreen
 import com.playtorrio.tv.ui.screens.addon.CatalogOrderScreen
 import com.playtorrio.tv.ui.screens.library.LibraryScreen
+import com.playtorrio.tv.domain.model.Subtitle
 import com.playtorrio.tv.ui.screens.player.PlayerExitReason
 import com.playtorrio.tv.ui.screens.player.PlayerScreen
 import com.playtorrio.tv.ui.screens.player.PostPlayRecommendation
+import com.playtorrio.tv.ui.screens.player.StreamSidecarSubtitles
 import com.playtorrio.tv.ui.screens.plugin.PluginScreen
 import com.playtorrio.tv.ui.screens.search.DiscoverScreen
 import com.playtorrio.tv.ui.screens.search.SearchScreen
@@ -1516,6 +1518,19 @@ fun PlayTorrioNavHost(
             AnimeStreamScreen(
                 onBackPress = { navController.popBackStack() },
                 onStreamSelected = { streamResult ->
+                    val sidecarSubtitles = streamResult.tracks.map { track ->
+                        val displayLang = track.lang.ifBlank { track.label.ifBlank { "en" } }
+                        Subtitle(
+                            id = track.url,
+                            url = track.url,
+                            lang = displayLang,
+                            addonName = streamResult.serverName,
+                            addonLogo = null,
+                            isStreamProvided = true
+                        )
+                    }
+                    StreamSidecarSubtitles.set(streamResult.streamUrl, sidecarSubtitles)
+
                     navController.navigate(
                         Screen.Player.createRoute(
                             streamUrl = streamResult.streamUrl,

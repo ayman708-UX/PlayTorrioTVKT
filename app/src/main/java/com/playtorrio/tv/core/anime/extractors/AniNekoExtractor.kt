@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -61,7 +62,12 @@ class AniNekoExtractor(private val client: OkHttpClient) {
         return results
     }
 
-    private fun extractHls(embedUrl: String): String? {
+    private data class HlsExtractResult(
+        val url: String,
+        val tracks: List<AnimeStreamTrack> = emptyList()
+    )
+
+    private fun extractHls(embedUrl: String): HlsExtractResult? {
         try {
             val req = Request.Builder()
                 .url(embedUrl)
@@ -79,7 +85,18 @@ class AniNekoExtractor(private val client: OkHttpClient) {
 
                     val match = m?.groupValues?.get(1)
                     if (!match.isNullOrBlank()) {
-                        return decodeEntities(match)
+                        val tracks = mutableListOf<AnimeStreamTrack>()
+                        val trackRegex = Regex("""<track[^>]+src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+                        for (tr in trackRegex.findAll(html)) {
+                            val trackTag = tr.value
+                            val src = tr.groupValues[1]
+                            if (src.isNotBlank() && !trackTag.contains("thumbnails", ignoreCase = true) && tracks.none { it.url == src }) {
+                                val label = Regex("""label=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "Subtitles"
+                                val srclang = Regex("""srclang=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "en"
+                                tracks.add(AnimeStreamTrack(url = decodeEntities(src), label = label, lang = srclang))
+                            }
+                        }
+                        return HlsExtractResult(url = decodeEntities(match), tracks = tracks)
                     }
                 }
             }
@@ -173,7 +190,7 @@ class AniNekoExtractor(private val client: OkHttpClient) {
                 val decodedIframe = decodeEntities(iframeSrc)
                 val hls = extractHls(decodedIframe)
                 if (hls != null) {
-                    byAudio[targetCat]?.add(hls)
+                    byAudio[targetCat]?.add(hls.url)
                 }
             }
 
@@ -215,9 +232,13 @@ class AniNekoExtractor(private val client: OkHttpClient) {
             val targetUrls = byAudio[targetCat].orEmpty()
             for (u in targetUrls) {
                 var finalUrl = u
+                var tracks = emptyList<AnimeStreamTrack>()
                 if (!finalUrl.contains(".m3u8")) {
                     val resolved = extractHls(finalUrl)
-                    if (resolved != null) finalUrl = resolved
+                    if (resolved != null) {
+                        finalUrl = resolved.url
+                        tracks = resolved.tracks
+                    }
                 }
 
                 if (finalUrl.contains(".m3u8") || finalUrl.startsWith("http")) {
@@ -227,6 +248,7 @@ class AniNekoExtractor(private val client: OkHttpClient) {
                             serverName = "AniNeko",
                             category = targetCat.uppercase(),
                             quality = "1080p",
+                            tracks = tracks,
                             headers = mapOf(
                                 "User-Agent" to USER_AGENT,
                                 "Referer" to "$BASE_URL/",

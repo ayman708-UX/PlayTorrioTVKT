@@ -1019,8 +1019,11 @@ private fun ContentDiscoverySettingsContent(
     onNavigateToAddons: () -> Unit,
     onNavigateToPlugins: () -> Unit,
     showPlugins: Boolean,
-    initialFocusRequester: FocusRequester?
+    initialFocusRequester: FocusRequester?,
+    animeSettingsViewModel: AnimeSettingsViewModel = hiltViewModel()
 ) {
+    val isArabicAnime by animeSettingsViewModel.isArabicAnime.collectAsStateWithLifecycle()
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(PlayTorrioTheme.spacing.md)
@@ -1030,16 +1033,22 @@ private fun ContentDiscoverySettingsContent(
             subtitle = stringResource(R.string.settings_content_discovery_subtitle)
         )
         SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
-            SettingsActionRow(
-                title = stringResource(R.string.addon_title),
-                subtitle = stringResource(R.string.settings_content_discovery_addons_subtitle),
-                onClick = onNavigateToAddons,
-                leadingIcon = Icons.Default.GridView,
+            SettingsToggleRow(
+                title = "Arabic Anime Mode",
+                subtitle = "Switch anime catalogs, search, and streaming providers to Arabic Anime (AnimeSlayer)",
+                checked = isArabicAnime,
+                onToggle = { animeSettingsViewModel.toggleArabicAnime() },
                 modifier = if (initialFocusRequester != null) {
                     Modifier.focusRequester(initialFocusRequester)
                 } else {
                     Modifier
                 }
+            )
+            SettingsActionRow(
+                title = stringResource(R.string.addon_title),
+                subtitle = stringResource(R.string.settings_content_discovery_addons_subtitle),
+                onClick = onNavigateToAddons,
+                leadingIcon = Icons.Default.GridView
             )
             if (showPlugins) {
                 SettingsActionRow(

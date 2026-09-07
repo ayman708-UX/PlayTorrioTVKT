@@ -51,7 +51,7 @@ private val FORMATS = listOf("TV", "MOVIE", "OVA", "ONA", "SPECIAL")
 @Composable
 fun AnimeSearchScreen(
     viewModel: AnimeSearchViewModel = hiltViewModel(),
-    onNavigateToDetail: (Int) -> Unit
+    onNavigateToDetail: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchFocusRequester = remember { FocusRequester() }
@@ -80,60 +80,84 @@ fun AnimeSearchScreen(
             .background(Color(0xFF070A13))
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
-        // Search Input Bar
+        // Top Action Bar: Search Input Bar + Arabic Anime Mode Toggle
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF0F172A))
-                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = Color(0xFF38BDF8),
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-
-            BasicTextField(
-                value = uiState.query,
-                onValueChange = { viewModel.onQueryChanged(it) },
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .focusRequester(searchFocusRequester),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = Color.White,
-                    fontSize = 18.sp
-                ),
-                cursorBrush = SolidColor(Color(0xFF38BDF8)),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                decorationBox = { innerTextField ->
-                    if (uiState.query.isEmpty()) {
-                        Text(
-                            text = "Search anime by title, studio, or character...",
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color.White.copy(alpha = 0.45f),
-                                fontSize = 18.sp
-                            )
-                        )
-                    }
-                    innerTextField()
-                }
-            )
-
-            if (uiState.query.isNotEmpty()) {
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF0F172A))
+                    .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Clear",
-                    tint = Color.White.copy(alpha = 0.6f),
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+
+                BasicTextField(
+                    value = uiState.query,
+                    onValueChange = { viewModel.onQueryChanged(it) },
                     modifier = Modifier
-                        .size(20.dp)
-                        .clickable { viewModel.onQueryChanged("") }
+                        .weight(1f)
+                        .focusRequester(searchFocusRequester),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = Color.White,
+                        fontSize = 18.sp
+                    ),
+                    cursorBrush = SolidColor(Color(0xFF38BDF8)),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                    decorationBox = { innerTextField ->
+                        if (uiState.query.isEmpty()) {
+                            Text(
+                                text = if (uiState.isArabicAnime) "بحث عن أنمي (بالعربية أو الإنجليزية)..." else "Search anime by title, studio, or character...",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 18.sp
+                                )
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+
+                if (uiState.query.isNotEmpty()) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear",
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { viewModel.onQueryChanged("") }
+                    )
+                }
+            }
+
+            Button(
+                onClick = { viewModel.toggleArabicAnime() },
+                colors = ButtonDefaults.colors(
+                    containerColor = if (uiState.isArabicAnime) Color(0xFF0C4A6E) else Color(0xFF131E35),
+                    focusedContainerColor = Color(0xFF0284C7)
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(20.dp)),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = if (uiState.isArabicAnime) "🌙 Arabic Anime" else "🌐 Normal Anime",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = if (uiState.isArabicAnime) Color(0xFF38BDF8) else Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
                 )
             }
         }
@@ -253,7 +277,7 @@ fun AnimeSearchScreen(
                     ) { anime ->
                         ContentCard(
                             item = anime.toMetaPreview(),
-                            onClick = { onNavigateToDetail(anime.id) },
+                            onClick = { onNavigateToDetail(anime.slug.ifBlank { anime.id.toString() }) },
                             posterCardStyle = posterCardStyle,
                             focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled
                         )
@@ -271,7 +295,7 @@ fun AnimeSearchScreen(
                 if (uiState.discoveryTrending.isNotEmpty()) {
                     item {
                         Text(
-                            text = "Trending Now",
+                            text = if (uiState.isArabicAnime) "الأكثر شهرة • Trending" else "Trending Now",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -282,7 +306,7 @@ fun AnimeSearchScreen(
                             items(uiState.discoveryTrending, key = { "disc_trend_${it.id}" }) { anime ->
                                 ContentCard(
                                     item = anime.toMetaPreview(),
-                                    onClick = { onNavigateToDetail(anime.id) },
+                                    onClick = { onNavigateToDetail(anime.slug.ifBlank { anime.id.toString() }) },
                                     posterCardStyle = posterCardStyle,
                                     focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled
                                 )
@@ -294,7 +318,7 @@ fun AnimeSearchScreen(
                 if (uiState.discoveryPopular.isNotEmpty()) {
                     item {
                         Text(
-                            text = "Popular This Season",
+                            text = if (uiState.isArabicAnime) "الأفلام الأكثر شعبية • Movies" else "Popular This Season",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -305,7 +329,7 @@ fun AnimeSearchScreen(
                             items(uiState.discoveryPopular, key = { "disc_pop_${it.id}" }) { anime ->
                                 ContentCard(
                                     item = anime.toMetaPreview(),
-                                    onClick = { onNavigateToDetail(anime.id) },
+                                    onClick = { onNavigateToDetail(anime.slug.ifBlank { anime.id.toString() }) },
                                     posterCardStyle = posterCardStyle,
                                     focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled
                                 )
@@ -317,7 +341,7 @@ fun AnimeSearchScreen(
                 if (uiState.discoveryTopRated.isNotEmpty()) {
                     item {
                         Text(
-                            text = "All-Time Top Rated",
+                            text = if (uiState.isArabicAnime) "الأنميات المنتظرة • Upcoming" else "All-Time Top Rated",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -328,7 +352,7 @@ fun AnimeSearchScreen(
                             items(uiState.discoveryTopRated, key = { "disc_top_${it.id}" }) { anime ->
                                 ContentCard(
                                     item = anime.toMetaPreview(),
-                                    onClick = { onNavigateToDetail(anime.id) },
+                                    onClick = { onNavigateToDetail(anime.slug.ifBlank { anime.id.toString() }) },
                                     posterCardStyle = posterCardStyle,
                                     focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled
                                 )

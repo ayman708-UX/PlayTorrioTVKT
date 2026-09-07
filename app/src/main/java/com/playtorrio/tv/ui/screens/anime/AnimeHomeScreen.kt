@@ -46,7 +46,7 @@ import kotlin.math.roundToInt
 @Composable
 fun AnimeHomeScreen(
     viewModel: AnimeHomeViewModel = hiltViewModel(),
-    onNavigateToDetail: (Int) -> Unit,
+    onNavigateToDetail: (String) -> Unit,
     onNavigateToSearch: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -142,8 +142,10 @@ fun AnimeHomeScreen(
                     item(key = "anime_hero_section") {
                         AnimeHeroSpotlight(
                             anime = activeAnime,
+                            isArabicAnime = uiState.isArabicAnime,
+                            onToggleArabic = { viewModel.toggleArabicAnime() },
                             onPlayClick = {
-                                activeAnime?.let { onNavigateToDetail(it.id) }
+                                activeAnime?.let { onNavigateToDetail(it.slug.ifBlank { it.id.toString() }) }
                             },
                             onSearchClick = onNavigateToSearch
                         )
@@ -158,7 +160,7 @@ fun AnimeHomeScreen(
                             row = row,
                             cardStyle = posterCardStyle,
                             expandBackdropEnabled = uiState.focusedPosterBackdropExpandEnabled,
-                            onAnimeClick = { onNavigateToDetail(it.id) },
+                            onAnimeClick = { onNavigateToDetail(it.slug.ifBlank { it.id.toString() }) },
                             onAnimeFocus = { viewModel.setFocusedAnime(it) }
                         )
                     }
@@ -172,6 +174,8 @@ fun AnimeHomeScreen(
 @Composable
 private fun AnimeHeroSpotlight(
     anime: AnimeMedia?,
+    isArabicAnime: Boolean,
+    onToggleArabic: () -> Unit,
     onPlayClick: () -> Unit,
     onSearchClick: () -> Unit
 ) {
@@ -206,39 +210,62 @@ private fun AnimeHeroSpotlight(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "ANIME",
+                    text = if (isArabicAnime) "ARABIC ANIME" else "ANIME",
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = Color.White.copy(alpha = 0.7f),
+                        color = if (isArabicAnime) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.7f),
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     )
                 )
             }
 
-            Button(
-                onClick = onSearchClick,
-                colors = ButtonDefaults.colors(
-                    containerColor = Color(0xFF131E35),
-                    focusedContainerColor = Color(0xFF0284C7)
-                ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(20.dp)),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search Anime",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                Button(
+                    onClick = onToggleArabic,
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (isArabicAnime) Color(0xFF0C4A6E) else Color(0xFF131E35),
+                        focusedContainerColor = Color(0xFF0284C7)
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(20.dp)),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
                     Text(
-                        text = "Search Anime",
+                        text = if (isArabicAnime) "🌙 Arabic Anime" else "🌐 Normal Anime",
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold
+                            color = if (isArabicAnime) Color(0xFF38BDF8) else Color.White,
+                            fontWeight = FontWeight.Bold
                         )
                     )
+                }
+
+                Button(
+                    onClick = onSearchClick,
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF131E35),
+                        focusedContainerColor = Color(0xFF0284C7)
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(20.dp)),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search Anime",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Search Anime",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                    }
                 }
             }
         }

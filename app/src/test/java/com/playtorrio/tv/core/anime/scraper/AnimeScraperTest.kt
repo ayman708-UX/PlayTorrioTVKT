@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.scraper
 
 import com.playtorrio.tv.core.anime.extractors.*
 import com.playtorrio.tv.core.anime.model.AnimeMedia
+import com.playtorrio.tv.core.scraper.HttpStreamLivenessValidator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -59,7 +60,7 @@ class AnimeScraperTest {
 
     @Test
     fun animeScraperServiceCollectsStreams() = runBlocking {
-        val service = AnimeScraperService()
+        val service = AnimeScraperService(HttpStreamLivenessValidator())
         val dummyAnime = AnimeMedia(
             id = 151807,
             titleEnglish = "Solo Leveling",

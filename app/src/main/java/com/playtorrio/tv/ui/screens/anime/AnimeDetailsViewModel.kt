@@ -3,21 +3,25 @@ package com.playtorrio.tv.ui.screens.anime
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.playtorrio.tv.core.anime.arabic.AnimeArabicService
 import com.playtorrio.tv.core.anime.metadata.AnilistService
 import com.playtorrio.tv.core.anime.model.AnimeEpisode
 import com.playtorrio.tv.core.anime.model.AnimeMedia
+import com.playtorrio.tv.data.local.AnimeSettingsDataStore
 import com.playtorrio.tv.data.local.LayoutPreferenceDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class AnimeDetailsUiState(
     val isLoading: Boolean = true,
+    val isArabicAnime: Boolean = false,
     val anime: AnimeMedia? = null,
     val episodes: List<AnimeEpisode> = emptyList(),
     val selectedBatchIndex: Int = 0,
@@ -46,12 +50,15 @@ data class AnimeDetailsUiState(
 @HiltViewModel
 class AnimeDetailsViewModel @Inject constructor(
     private val anilistService: AnilistService,
+    private val animeArabicService: AnimeArabicService,
+    private val animeSettingsDataStore: AnimeSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val animeId: Int = savedStateHandle.get<String>("animeId")?.toIntOrNull()
-        ?: savedStateHandle.get<Int>("animeId") ?: 0
+    private val rawAnimeId: String = savedStateHandle.get<String>("animeId")
+        ?: (savedStateHandle.get<Any>("animeId")?.toString().orEmpty())
+    private val animeId: Int = rawAnimeId.toIntOrNull() ?: 0
 
     private val _uiState = MutableStateFlow(AnimeDetailsUiState())
     val uiState: StateFlow<AnimeDetailsUiState> = _uiState.asStateFlow()
@@ -80,27 +87,43 @@ class AnimeDetailsViewModel @Inject constructor(
     }
 
     fun loadDetails() {
-        if (animeId <= 0) {
-            _uiState.update { it.copy(isLoading = false, error = "Invalid Anime ID") }
-            return
-        }
-
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val details = anilistService.fetchAnimeDetails(animeId)
-                if (details != null) {
-                    val eps = anilistService.getEpisodes(details)
+                val isArabic = animeSettingsDataStore.isArabicAnime.first() || (animeId <= 0 && rawAnimeId.isNotBlank())
+                _uiState.update { it.copy(isArabicAnime = isArabic) }
+
+                if (isArabic) {
+                    val slug = if (rawAnimeId.isNotBlank()) rawAnimeId else animeId.toString()
+                    val details = animeArabicService.getDetails(slug)
+                    val media = details.toAnimeMedia()
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            anime = details,
-                            episodes = eps
+                            anime = media,
+                            episodes = details.episodes
                         )
                     }
                 } else {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = "Anime not found") }
+                    if (animeId <= 0) {
+                        _uiState.update { it.copy(isLoading = false, error = "Invalid Anime ID") }
+                        return@launch
+                    }
+                    val details = anilistService.fetchAnimeDetails(animeId)
+                    if (details != null) {
+                        val eps = anilistService.getEpisodes(details)
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                anime = details,
+                                episodes = eps
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(isLoading = false, error = "Anime not found")
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {
@@ -135,7 +158,6 @@ class AnimeDetailsViewModel @Inject constructor(
     }
 
     fun jumpToPage(pageNumber: Int) {
-        // 1-based page number
         selectBatch(pageNumber - 1)
     }
 }

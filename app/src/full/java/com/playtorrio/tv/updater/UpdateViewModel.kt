@@ -57,7 +57,7 @@ class UpdateViewModel @Inject constructor(
                     updateChannel = channel
                 )
             }
-            if (enabled && !BuildConfig.IS_DEBUG_BUILD) {
+            if (enabled) {
                 checkForUpdates(force = false, showNoUpdateFeedback = false)
             }
         }
@@ -143,11 +143,7 @@ class UpdateViewModel @Inject constructor(
     }
 
     private fun noUpdateFeedback(channel: UpdateChannel): String =
-        if (channel == UpdateChannel.STABLE && VersionUtils.isPrerelease(BuildConfig.VERSION_NAME)) {
-            context.getString(R.string.update_waiting_for_stable)
-        } else {
-            context.getString(R.string.update_latest_version)
-        }
+        context.getString(R.string.update_latest_version)
 
     fun dismissBanner() {
         val state = _uiState.value

@@ -4,21 +4,28 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.playtorrio.tv.core.anime.arabic.AnimeArabicExtractor
+import com.playtorrio.tv.core.anime.arabic.AnimeArabicService
+import com.playtorrio.tv.core.anime.arabic.ArabicAnimeDetails
 import com.playtorrio.tv.core.anime.metadata.AnilistService
+import com.playtorrio.tv.core.anime.model.AnimeEpisode
 import com.playtorrio.tv.core.anime.model.AnimeMedia
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
 import com.playtorrio.tv.core.anime.scraper.AnimeScraperService
+import com.playtorrio.tv.data.local.AnimeSettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class AnimeStreamUiState(
     val animeId: Int = 0,
+    val rawAnimeId: String = "",
     val episodeNumber: Int = 1,
     val title: String = "",
     val poster: String? = null,
@@ -35,25 +42,30 @@ data class AnimeStreamUiState(
 class AnimeStreamViewModel @Inject constructor(
     private val scraperService: AnimeScraperService,
     private val anilistService: AnilistService,
+    private val animeArabicService: AnimeArabicService,
+    private val animeArabicExtractor: AnimeArabicExtractor,
+    private val animeSettingsDataStore: AnimeSettingsDataStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val animeId: Int = savedStateHandle.get<String>("animeId")?.toIntOrNull()
-        ?: savedStateHandle.get<Int>("animeId") ?: 0
+    private val rawAnimeId: String = savedStateHandle.get<String>("animeId")
+        ?: (savedStateHandle.get<Any>("animeId")?.toString().orEmpty())
+    private val animeId: Int = rawAnimeId.toIntOrNull() ?: 0
     private val episodeNumber: Int = savedStateHandle.get<String>("episodeNumber")?.toIntOrNull()
-        ?: savedStateHandle.get<Int>("episodeNumber") ?: 1
+        ?: (savedStateHandle.get<Any>("episodeNumber") as? Int) ?: 1
     private val title: String = savedStateHandle.get<String>("title").orEmpty()
     private val poster: String? = savedStateHandle.get<String>("poster")
     private val backdrop: String? = savedStateHandle.get<String>("backdrop")
     private val episodeTitle: String? = savedStateHandle.get<String>("episodeTitle")
     private val totalEpisodes: Int = savedStateHandle.get<String>("totalEpisodes")?.toIntOrNull()
-        ?: savedStateHandle.get<Int>("totalEpisodes") ?: 0
+        ?: (savedStateHandle.get<Any>("totalEpisodes") as? Int) ?: 0
     private val isAdult: Boolean = savedStateHandle.get<String>("isAdult")?.toBooleanStrictOrNull()
-        ?: savedStateHandle.get<Boolean>("isAdult") ?: false
+        ?: (savedStateHandle.get<Any>("isAdult") as? Boolean) ?: false
 
     private val _uiState = MutableStateFlow(
         AnimeStreamUiState(
             animeId = animeId,
+            rawAnimeId = rawAnimeId,
             episodeNumber = episodeNumber,
             title = title,
             poster = poster,
@@ -67,6 +79,8 @@ class AnimeStreamViewModel @Inject constructor(
 
     private var scrapeJob: Job? = null
     private var resolvedAnime: AnimeMedia? = null
+    private var arabicDetails: ArabicAnimeDetails? = null
+    private var isArabicMode: Boolean = false
 
     init {
         loadAndScrape()
@@ -74,38 +88,105 @@ class AnimeStreamViewModel @Inject constructor(
 
     private fun loadAndScrape() {
         viewModelScope.launch {
-            try {
-                if (animeId > 0) {
-                    resolvedAnime = anilistService.fetchAnimeDetails(animeId)
-                }
-            } catch (_: Exception) {}
+            isArabicMode = animeSettingsDataStore.isArabicAnime.first() || (animeId <= 0 && rawAnimeId.isNotBlank())
 
-            if (resolvedAnime == null && title.isNotBlank()) {
+            if (isArabicMode) {
                 try {
-                    val searchResults = anilistService.searchAnime(title)
-                    resolvedAnime = searchResults.firstOrNull()
+                    val slug = if (rawAnimeId.isNotBlank()) rawAnimeId else animeId.toString()
+                    arabicDetails = animeArabicService.getDetails(slug)
                 } catch (_: Exception) {}
-            }
 
-            resolvedAnime?.let { found ->
-                _uiState.update { current ->
-                    current.copy(
-                        title = current.title.ifBlank { found.displayTitle },
-                        totalEpisodes = if (current.totalEpisodes <= 0) found.totalEpisodes else current.totalEpisodes,
-                        poster = current.poster ?: found.coverUrl.takeIf { it.isNotBlank() },
-                        backdrop = current.backdrop ?: found.backdropUrl.takeIf { it.isNotBlank() }
-                    )
+                if (arabicDetails == null && title.isNotBlank()) {
+                    try {
+                        val search = animeArabicService.search(title)
+                        val firstSlug = search.firstOrNull()?.slug.orEmpty()
+                        if (firstSlug.isNotBlank()) {
+                            arabicDetails = animeArabicService.getDetails(firstSlug)
+                        }
+                    } catch (_: Exception) {}
                 }
-            }
 
-            startScrape(categoryFilter = null)
+                arabicDetails?.let { details ->
+                    val ep = details.episodes.find { it.number == episodeNumber }
+                        ?: details.episodes.getOrNull(episodeNumber - 1)
+                    _uiState.update { current ->
+                        current.copy(
+                            title = current.title.ifBlank { details.title.ifBlank { AnimeArabicService.humanizeSlug(details.slug) } },
+                            totalEpisodes = if (current.totalEpisodes <= 0) details.episodes.size else current.totalEpisodes,
+                            poster = current.poster ?: details.cover,
+                            backdrop = current.backdrop ?: details.banner ?: details.cover,
+                            episodeTitle = current.episodeTitle ?: ep?.title
+                        )
+                    }
+                }
+                startArabicScrape()
+            } else {
+                try {
+                    if (animeId > 0) {
+                        resolvedAnime = anilistService.fetchAnimeDetails(animeId)
+                    }
+                } catch (_: Exception) {}
+
+                if (resolvedAnime == null && title.isNotBlank()) {
+                    try {
+                        val searchResults = anilistService.searchAnime(title)
+                        resolvedAnime = searchResults.firstOrNull()
+                    } catch (_: Exception) {}
+                }
+
+                resolvedAnime?.let { found ->
+                    _uiState.update { current ->
+                        current.copy(
+                            title = current.title.ifBlank { found.displayTitle },
+                            totalEpisodes = if (current.totalEpisodes <= 0) found.totalEpisodes else current.totalEpisodes,
+                            poster = current.poster ?: found.coverUrl.takeIf { it.isNotBlank() },
+                            backdrop = current.backdrop ?: found.backdropUrl.takeIf { it.isNotBlank() }
+                        )
+                    }
+                }
+
+                startScrape(categoryFilter = null)
+            }
         }
     }
 
     fun setCategoryFilter(filter: String?) {
         if (_uiState.value.selectedCategoryFilter == filter) return
         _uiState.update { it.copy(selectedCategoryFilter = filter) }
-        startScrape(filter)
+        if (isArabicMode) {
+            startArabicScrape()
+        } else {
+            startScrape(filter)
+        }
+    }
+
+    private fun startArabicScrape() {
+        scrapeJob?.cancel()
+        _uiState.update { it.copy(isScraping = true, streams = emptyList()) }
+
+        scrapeJob = viewModelScope.launch {
+            try {
+                val details = arabicDetails
+                val ep = details?.episodes?.find { it.number == episodeNumber }
+                    ?: details?.episodes?.getOrNull(episodeNumber - 1)
+
+                val watchPath = ep?.watchPath.orEmpty()
+                if (watchPath.isNotBlank()) {
+                    val resolved = animeArabicExtractor.resolveEpisode(
+                        watchPath = watchPath,
+                        episodeNumber = episodeNumber,
+                        animeTitle = _uiState.value.title
+                    )
+                    _uiState.update { current ->
+                        current.copy(streams = resolved)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AnimeStreamViewModel", "Arabic scrape error: ${e.message}")
+            } finally {
+                _uiState.update { it.copy(isScraping = false) }
+            }
+        }
     }
 
     private fun startScrape(categoryFilter: String?) {

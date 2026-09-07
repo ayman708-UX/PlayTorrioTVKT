@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -51,7 +52,12 @@ class AniHQExtractor(private val client: OkHttpClient) {
         }
     }
 
-    private fun extractVoe(voeUrl: String): String? {
+    private data class VoeResult(
+        val streamUrl: String,
+        val tracks: List<AnimeStreamTrack> = emptyList()
+    )
+
+    private fun extractVoe(voeUrl: String): VoeResult? {
         try {
             var voeReq = Request.Builder()
                 .url(voeUrl)
@@ -103,7 +109,43 @@ class AniHQExtractor(private val client: OkHttpClient) {
 
                 val streamUrl = finalData.optString("source").ifBlank { finalData.optString("file") }
                 if (streamUrl.startsWith("http")) {
-                    return streamUrl
+                    val tracks = mutableListOf<AnimeStreamTrack>()
+                    val subArr = finalData.optJSONArray("tracks") ?: finalData.optJSONArray("subtitles")
+                    if (subArr != null) {
+                        for (tIdx in 0 until subArr.length()) {
+                            val t = subArr.optJSONObject(tIdx) ?: continue
+                            val f = t.optString("file").ifBlank { t.optString("url") }
+                            val kind = t.optString("kind", "subtitles")
+                            if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                tracks.add(
+                                    AnimeStreamTrack(
+                                        url = f,
+                                        label = t.optString("label", t.optString("lang", "English")),
+                                        lang = t.optString("lang", "en"),
+                                        kind = kind,
+                                        isDefault = t.optBoolean("default", false)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Also check HTML for <track> elements
+                    val trackRegex = Regex("""<track[^>]+src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+                    for (match in trackRegex.findAll(html)) {
+                        val trackTag = match.value
+                        val src = match.groupValues[1]
+                        if (src.isNotBlank() && tracks.none { it.url == src }) {
+                            val label = Regex("""label=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "Subtitles"
+                            val srclang = Regex("""srclang=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(trackTag)?.groupValues?.get(1) ?: "en"
+                            val isThumb = trackTag.contains("thumbnails", ignoreCase = true)
+                            if (!isThumb) {
+                                tracks.add(AnimeStreamTrack(url = src, label = label, lang = srclang))
+                            }
+                        }
+                    }
+
+                    return VoeResult(streamUrl = streamUrl, tracks = tracks)
                 }
             }
         } catch (_: Exception) {}
@@ -168,14 +210,15 @@ class AniHQExtractor(private val client: OkHttpClient) {
 
                     val voeUrl = voeMatch?.groupValues?.get(1)
                     if (!voeUrl.isNullOrBlank()) {
-                        val streamUrl = extractVoe(voeUrl)
-                        if (!streamUrl.isNullOrBlank()) {
+                        val voeRes = extractVoe(voeUrl)
+                        if (voeRes != null && voeRes.streamUrl.isNotBlank()) {
                             results.add(
                                 AnimeStreamResult(
-                                    streamUrl = streamUrl,
+                                    streamUrl = voeRes.streamUrl,
                                     serverName = "AniHQ (VOE)",
                                     category = if (isDub) "DUB" else "SUB",
                                     quality = "1080p",
+                                    tracks = voeRes.tracks,
                                     headers = mapOf(
                                         "User-Agent" to USER_AGENT,
                                         "Referer" to "$BASE_URL/",

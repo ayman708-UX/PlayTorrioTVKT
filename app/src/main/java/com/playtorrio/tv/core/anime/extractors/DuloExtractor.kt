@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -82,18 +83,41 @@ class DuloExtractor(private val client: OkHttpClient) {
                                         val obj = JSONObject(dataStr)
                                         val sources = obj.optJSONArray("sources")
                                         if (sources != null) {
+                                            val globalSubs = obj.optJSONArray("subtitles") ?: obj.optJSONArray("tracks") ?: obj.optJSONArray("captions")
                                             for (k in 0 until sources.length()) {
                                                 val s = sources.optJSONObject(k) ?: continue
                                                 val url = s.optString("url")
                                                 val title = s.optString("title").ifBlank { "Source ${k + 1}" }
                                                 val quality = s.optString("quality").ifBlank { "1080p" }
                                                 if (url.startsWith("http")) {
+                                                    val tracks = mutableListOf<AnimeStreamTrack>()
+                                                    val subArr = s.optJSONArray("subtitles") ?: s.optJSONArray("tracks") ?: s.optJSONArray("captions") ?: globalSubs
+                                                    if (subArr != null) {
+                                                        for (tIdx in 0 until subArr.length()) {
+                                                            val t = subArr.optJSONObject(tIdx) ?: continue
+                                                            val f = t.optString("url").ifBlank { t.optString("file") }
+                                                            val kind = t.optString("kind", "subtitles")
+                                                            if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                                                tracks.add(
+                                                                    AnimeStreamTrack(
+                                                                        url = f,
+                                                                        label = t.optString("label", t.optString("lang", "Subtitles")),
+                                                                        lang = t.optString("lang", "en"),
+                                                                        kind = kind,
+                                                                        isDefault = t.optBoolean("default", false)
+                                                                    )
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+
                                                     results.add(
                                                         AnimeStreamResult(
                                                             streamUrl = url,
                                                             serverName = "Dulo ($title)",
                                                             category = "SUB",
                                                             quality = quality,
+                                                            tracks = tracks,
                                                             headers = playbackHeaders
                                                         )
                                                     )

@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.anime.extractors
 
 import android.util.Log
 import com.playtorrio.tv.core.anime.model.AnimeStreamResult
+import com.playtorrio.tv.core.anime.model.AnimeStreamTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -49,12 +50,35 @@ class AniPMExtractor(private val client: OkHttpClient) {
                     val streamUrl = if (rawUrl.startsWith("/")) "$BASE_URL$rawUrl" else rawUrl
                     val provider = srv.optString("provider").ifBlank { "AniPM" }
 
+                    val tracks = mutableListOf<AnimeStreamTrack>()
+                    val subArr = srv.optJSONArray("tracks") ?: srv.optJSONArray("subtitles") ?: srv.optJSONArray("captions")
+                    if (subArr != null) {
+                        for (tIdx in 0 until subArr.length()) {
+                            val t = subArr.optJSONObject(tIdx) ?: continue
+                            val f = t.optString("url").ifBlank { t.optString("file") }
+                            val kind = t.optString("kind", "subtitles")
+                            if (f.isNotBlank() && !kind.equals("thumbnails", ignoreCase = true)) {
+                                val fullTrackUrl = if (f.startsWith("/")) "$BASE_URL$f" else f
+                                tracks.add(
+                                    AnimeStreamTrack(
+                                        url = fullTrackUrl,
+                                        label = t.optString("label", t.optString("lang", "Subtitles")),
+                                        lang = t.optString("lang", "en"),
+                                        kind = kind,
+                                        isDefault = t.optBoolean("default", false)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
                     results.add(
                         AnimeStreamResult(
                             streamUrl = streamUrl,
                             serverName = "AniPM ($provider)",
                             category = targetAud.uppercase(),
                             quality = "1080p",
+                            tracks = tracks,
                             headers = mapOf(
                                 "User-Agent" to USER_AGENT,
                                 "Referer" to "$BASE_URL/",

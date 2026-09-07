@@ -25,21 +25,18 @@ internal fun UpdateChannelSettings(initialFocusRequester: FocusRequester?) {
     val context = LocalContext.current
     val viewModel: UpdateViewModel = hiltViewModel(context as ComponentActivity)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var showChannelDialog by rememberSaveable { mutableStateOf(false) }
-    val channelName = when (state.updateChannel) {
-        UpdateChannel.STABLE -> stringResource(R.string.update_channel_stable)
-        UpdateChannel.BETA -> stringResource(R.string.update_channel_beta)
-    }
 
     SettingsActionRow(
-        title = stringResource(R.string.about_update_channel_title),
-        subtitle = stringResource(R.string.about_update_channel_subtitle),
-        value = channelName,
-        onClick = { showChannelDialog = true },
+        title = stringResource(R.string.about_check_updates),
+        subtitle = stringResource(R.string.about_check_updates_subtitle),
+        trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
         modifier = if (initialFocusRequester != null) {
             Modifier.focusRequester(initialFocusRequester)
         } else {
             Modifier
+        },
+        onClick = {
+            viewModel.checkForUpdates(force = true, showNoUpdateFeedback = true)
         }
     )
 
@@ -51,40 +48,4 @@ internal fun UpdateChannelSettings(initialFocusRequester: FocusRequester?) {
             viewModel.setUpdateBannerEnabled(!state.updateBannerEnabled)
         }
     )
-
-    SettingsActionRow(
-        title = stringResource(R.string.about_check_updates),
-        subtitle = stringResource(R.string.about_check_updates_subtitle),
-        trailingIcon = Icons.AutoMirrored.Filled.OpenInNew,
-        onClick = {
-            viewModel.checkForUpdates(force = true, showNoUpdateFeedback = true)
-        }
-    )
-
-    if (showChannelDialog) {
-        SettingsSingleChoiceDialog(
-            title = stringResource(R.string.about_update_channel_title),
-            subtitle = stringResource(R.string.update_channel_dialog_subtitle),
-            options = listOf(
-                SettingsPickerOption(
-                    value = UpdateChannel.STABLE,
-                    title = stringResource(R.string.update_channel_stable),
-                    description = stringResource(R.string.update_channel_stable_description)
-                ),
-                SettingsPickerOption(
-                    value = UpdateChannel.BETA,
-                    title = stringResource(R.string.update_channel_beta),
-                    description = stringResource(R.string.update_channel_beta_description)
-                )
-            ),
-            selectedValue = state.updateChannel,
-            onOptionSelected = { channel ->
-                viewModel.setUpdateChannel(channel)
-                showChannelDialog = false
-            },
-            onDismiss = { showChannelDialog = false },
-            width = 500.dp,
-            maxHeight = 320.dp
-        )
-    }
 }

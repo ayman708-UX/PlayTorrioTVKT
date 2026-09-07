@@ -1,7 +1,11 @@
 package com.playtorrio.tv.core.iptv.network
 
 import android.util.Base64
+import android.util.JsonReader
+import android.util.JsonToken
 import android.util.Log
+import com.playtorrio.tv.core.iptv.channels.HardcodedChannel
+import com.playtorrio.tv.core.iptv.channels.HardcodedChannels
 import com.playtorrio.tv.core.iptv.model.EpgEntry
 import com.playtorrio.tv.core.iptv.model.IptvCategory
 import com.playtorrio.tv.core.iptv.model.IptvEpisode
@@ -10,11 +14,14 @@ import com.playtorrio.tv.core.iptv.model.IptvSection
 import com.playtorrio.tv.core.iptv.model.IptvStream
 import com.playtorrio.tv.core.iptv.model.VerifiedPortal
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.Reader
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -128,7 +135,130 @@ object IptvClient {
         }
     }
 
-    suspend fun streams(p: IptvPortal, kind: IptvSection, categoryId: String): List<IptvStream> {
+    private fun parseStreamsWithJsonReader(
+        reader: Reader,
+        kind: IptvSection,
+        filter: ((String) -> Boolean)? = null
+    ): List<IptvStream> {
+        val jsonReader = JsonReader(reader)
+        val list = mutableListOf<IptvStream>()
+        val kindStr = when (kind) {
+            IptvSection.LIVE -> "live"
+            IptvSection.VOD -> "vod"
+            IptvSection.SERIES -> "series"
+        }
+
+        try {
+            if (jsonReader.peek() != JsonToken.BEGIN_ARRAY) {
+                return emptyList()
+            }
+            jsonReader.beginArray()
+            while (jsonReader.hasNext()) {
+                if (jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
+                    jsonReader.skipValue()
+                    continue
+                }
+                jsonReader.beginObject()
+                var streamId = ""
+                var name = ""
+                var icon = ""
+                var categoryId = ""
+                var containerExt = ""
+                var epgChannelId = ""
+
+                while (jsonReader.hasNext()) {
+                    val fieldName = jsonReader.nextName()
+                    if (jsonReader.peek() == JsonToken.NULL) {
+                        jsonReader.nextNull()
+                        continue
+                    }
+                    when (fieldName) {
+                        "stream_id", "series_id" -> {
+                            streamId = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else if (jsonReader.peek() == JsonToken.NUMBER) {
+                                jsonReader.nextLong().toString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        "name" -> {
+                            name = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        "stream_icon", "cover" -> {
+                            icon = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        "category_id" -> {
+                            categoryId = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else if (jsonReader.peek() == JsonToken.NUMBER) {
+                                jsonReader.nextLong().toString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        "container_extension" -> {
+                            containerExt = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        "epg_channel_id" -> {
+                            epgChannelId = if (jsonReader.peek() == JsonToken.STRING) {
+                                jsonReader.nextString()
+                            } else {
+                                jsonReader.skipValue()
+                                ""
+                            }
+                        }
+                        else -> jsonReader.skipValue()
+                    }
+                }
+                jsonReader.endObject()
+
+                if (streamId.isNotEmpty()) {
+                    if (filter == null || filter(name)) {
+                        val ext = containerExt.ifEmpty {
+                            if (kind == IptvSection.LIVE) "m3u8" else "mp4"
+                        }
+                        list.add(
+                            IptvStream(
+                                streamId = streamId,
+                                name = name.ifEmpty { "Stream $streamId" },
+                                icon = icon,
+                                categoryId = categoryId,
+                                containerExt = ext,
+                                kind = kindStr,
+                                epgChannelId = epgChannelId
+                            )
+                        )
+                    }
+                }
+            }
+            jsonReader.endArray()
+        } catch (_: Exception) {
+            // Best effort on truncated or partially invalid JSON
+        } finally {
+            try { jsonReader.close() } catch (_: Exception) {}
+        }
+        return list
+    }
+
+    suspend fun streams(p: IptvPortal, kind: IptvSection, categoryId: String): List<IptvStream> = withContext(Dispatchers.IO) {
         val action = when (kind) {
             IptvSection.LIVE -> "get_live_streams"
             IptvSection.VOD -> "get_vod_streams"
@@ -136,38 +266,124 @@ object IptvClient {
         }
         val base = "${p.url}/player_api.php?username=${enc(p.username)}&password=${enc(p.password)}&action=$action"
         val url = if (categoryId.isEmpty()) base else "$base&category_id=${enc(categoryId)}"
-        val text = httpGet(url, 15) ?: return emptyList()
+        val timeoutSec = if (categoryId.isEmpty()) 10L else 8L
 
-        return try {
-            val arr = JSONArray(text)
-            val list = mutableListOf<IptvStream>()
-            val kindStr = when (kind) {
-                IptvSection.LIVE -> "live"
-                IptvSection.VOD -> "vod"
-                IptvSection.SERIES -> "series"
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", UA)
+                .addHeader("Accept", "application/json, */*")
+                .build()
+            val customClient = httpClient.newBuilder()
+                .connectTimeout(timeoutSec, TimeUnit.SECONDS)
+                .readTimeout(timeoutSec, TimeUnit.SECONDS)
+                .build()
+
+            customClient.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@withContext emptyList()
+                val body = res.body ?: return@withContext emptyList()
+                parseStreamsWithJsonReader(body.charStream(), kind)
             }
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val streamId = o.optString("stream_id").ifEmpty { o.optString("series_id") }
-                if (streamId.isEmpty()) continue
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
-                val ext = o.optString("container_extension").ifEmpty {
-                    if (kind == IptvSection.LIVE) "m3u8" else "mp4"
+    fun findMatchingCategories(
+        categories: List<IptvCategory>,
+        channel: HardcodedChannel
+    ): List<IptvCategory> {
+        if (categories.isEmpty()) return emptyList()
+
+        val keywordsLower = channel.keywords.map { it.lowercase().trim() }.filter { it.isNotEmpty() }
+        val genreKeywords = when (channel.category.lowercase()) {
+            "combat" -> listOf("combat", "fight", "mma", "ufc", "boxing", "wwe", "wrestl", "ppv", "martial", "sport")
+            "premier", "us sports", "soccer", "racing" -> listOf("sport", "espn", "football", "soccer", "racing", "f1", "motor", "nba", "nfl", "mlb", "nhl", "ppv", "live", "bein", "dazn", "sky", "tnt", "fox")
+            "movies" -> listOf("movie", "cinema", "film", "hbo", "showtime", "starz", "vod", "premium", "entertainment")
+            "news" -> listOf("news", "info", "journal", "noticia", "actualit", "cnn", "bbc")
+            "kids" -> listOf("kid", "child", "cartoon", "animat", "disney", "nickelodeon", "junior", "jeunesse")
+            "discovery" -> listOf("doc", "discovery", "nat geo", "geograph", "history", "planet", "science")
+            "arabic" -> listOf("arab", "bein", "ssc", "mbc", "osn", "egypt", "saudi", "morocco", "qatar", "uae", "nile")
+            else -> listOf("sport", "live", "general")
+        }
+
+        val generalRegions = listOf("usa", "us|", "us:", "u.s.", "uk", "uk|", "uk:", "vip", "ppv")
+
+        val matched = categories.filter { cat ->
+            val catName = cat.name.lowercase()
+            val keywordMatch = keywordsLower.any { kw ->
+                if (kw.length <= 3) {
+                    Regex("""(?:^|[^a-zA-Z0-9])""" + Regex.escape(kw) + """(?:$|[^a-zA-Z0-9])""").containsMatchIn(catName)
+                } else {
+                    catName.contains(kw)
                 }
-
-                list.add(
-                    IptvStream(
-                        streamId = streamId,
-                        name = o.optString("name").ifEmpty { "Stream $streamId" },
-                        icon = o.optString("stream_icon").ifEmpty { o.optString("cover") },
-                        categoryId = o.optString("category_id"),
-                        containerExt = ext,
-                        kind = kindStr,
-                        epgChannelId = o.optString("epg_channel_id")
-                    )
-                )
             }
-            list
+            if (keywordMatch) return@filter true
+
+            val genreMatch = genreKeywords.any { catName.contains(it) }
+            if (genreMatch) return@filter true
+
+            val regionMatch = generalRegions.any { catName.contains(it) } &&
+                    (catName.contains("sport") || catName.contains("live") || catName.contains("tv") || catName.contains("hd"))
+            regionMatch
+        }
+
+        return matched.take(6)
+    }
+
+    suspend fun searchChannelInPortal(
+        portal: IptvPortal,
+        channel: HardcodedChannel
+    ): List<IptvStream> = withContext(Dispatchers.IO) {
+        // Step 1: Fast fetch categories (~100ms)
+        val cats = try {
+            categories(portal, IptvSection.LIVE)
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        // Step 2: Match categories relevant to this channel
+        val matchedCategories = findMatchingCategories(cats, channel)
+
+        if (matchedCategories.isNotEmpty()) {
+            val catResults = matchedCategories.map { cat ->
+                async {
+                    try {
+                        streams(portal, IptvSection.LIVE, cat.id).filter { s ->
+                            HardcodedChannels.matches(s.name, channel.keywords, channel.exclude)
+                        }
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            }.awaitAll().flatten()
+
+            if (catResults.isNotEmpty()) {
+                return@withContext catResults
+            }
+        }
+
+        // Step 3: Fast streaming fallback if category list is empty or didn't yield matches
+        val action = "get_live_streams"
+        val url = "${portal.url}/player_api.php?username=${enc(portal.username)}&password=${enc(portal.password)}&action=$action"
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", UA)
+                .addHeader("Accept", "application/json, */*")
+                .build()
+            val customClient = httpClient.newBuilder()
+                .connectTimeout(6, TimeUnit.SECONDS)
+                .readTimeout(7, TimeUnit.SECONDS)
+                .build()
+
+            customClient.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@withContext emptyList()
+                val body = res.body ?: return@withContext emptyList()
+                parseStreamsWithJsonReader(body.charStream(), IptvSection.LIVE) { name ->
+                    HardcodedChannels.matches(name, channel.keywords, channel.exclude)
+                }
+            }
         } catch (_: Exception) {
             emptyList()
         }

@@ -108,8 +108,8 @@ android {
         applicationId = "com.playtorrio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1052
-        versionName = "0.8.11-beta"
+        versionCode = 1053
+        versionName = "1.0.9"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -149,8 +149,8 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"PlayTorrioMedia\"")
-        buildConfigField("String", "GITHUB_REPO", "\"PlayTorrioTV\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"ayman708-UX\"")
+        buildConfigField("String", "GITHUB_REPO", "\"PlayTorrioTVKT\"")
     }
 
     flavorDimensions += "distribution"

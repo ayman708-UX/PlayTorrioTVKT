@@ -142,3 +142,7 @@
 -keepclassmembers class com.fasterxml.jackson.** { *; }
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
+
+# ── Anime (Arabic & models) ───────────────────────────────────────────────────
+-keep class com.playtorrio.tv.core.anime.** { *; }
+-keepclassmembers class com.playtorrio.tv.core.anime.** { *; }

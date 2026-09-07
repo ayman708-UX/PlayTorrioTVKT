@@ -2,8 +2,10 @@ package com.playtorrio.tv.ui.screens.anime
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.playtorrio.tv.core.anime.arabic.AnimeArabicService
 import com.playtorrio.tv.core.anime.metadata.AnilistService
 import com.playtorrio.tv.core.anime.model.AnimeMedia
+import com.playtorrio.tv.data.local.AnimeSettingsDataStore
 import com.playtorrio.tv.data.local.LayoutPreferenceDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -18,6 +20,7 @@ import javax.inject.Inject
 
 data class AnimeSearchUiState(
     val query: String = "",
+    val isArabicAnime: Boolean = false,
     val isAdult: Boolean = false,
     val selectedGenre: String? = null,
     val selectedFormat: String? = null,
@@ -36,6 +39,8 @@ data class AnimeSearchUiState(
 @HiltViewModel
 class AnimeSearchViewModel @Inject constructor(
     private val anilistService: AnilistService,
+    private val animeArabicService: AnimeArabicService,
+    private val animeSettingsDataStore: AnimeSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
 
@@ -46,7 +51,7 @@ class AnimeSearchViewModel @Inject constructor(
 
     init {
         observeLayoutPreferences()
-        loadInitialDiscovery()
+        observeAnimeSettings()
     }
 
     private fun observeLayoutPreferences() {
@@ -67,18 +72,38 @@ class AnimeSearchViewModel @Inject constructor(
         }
     }
 
-    private fun loadInitialDiscovery() {
+    private fun observeAnimeSettings() {
+        viewModelScope.launch {
+            animeSettingsDataStore.isArabicAnime.collectLatest { isArabic ->
+                _uiState.update { it.copy(isArabicAnime = isArabic) }
+                loadInitialDiscovery(isArabic)
+            }
+        }
+    }
+
+    private fun loadInitialDiscovery(isArabic: Boolean = _uiState.value.isArabicAnime) {
         viewModelScope.launch {
             try {
-                val trending = anilistService.fetchTrendingAnime(page = 1, perPage = 20)
-                val popular = anilistService.fetchPopularThisSeason(page = 1, perPage = 20)
-                val topRated = anilistService.fetchTopRated(page = 1, perPage = 20)
-                _uiState.update {
-                    it.copy(
-                        discoveryTrending = trending,
-                        discoveryPopular = popular,
-                        discoveryTopRated = topRated
-                    )
+                if (isArabic) {
+                    val feed = animeArabicService.getHome()
+                    _uiState.update {
+                        it.copy(
+                            discoveryTrending = feed.trending.ifEmpty { feed.recentEpisodes },
+                            discoveryPopular = feed.popularMovies.ifEmpty { feed.recentEpisodes },
+                            discoveryTopRated = feed.upcoming.ifEmpty { feed.popularMovies }
+                        )
+                    }
+                } else {
+                    val trending = anilistService.fetchTrendingAnime(page = 1, perPage = 20)
+                    val popular = anilistService.fetchPopularThisSeason(page = 1, perPage = 20)
+                    val topRated = anilistService.fetchTopRated(page = 1, perPage = 20)
+                    _uiState.update {
+                        it.copy(
+                            discoveryTrending = trending,
+                            discoveryPopular = popular,
+                            discoveryTopRated = topRated
+                        )
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -119,6 +144,18 @@ class AnimeSearchViewModel @Inject constructor(
         triggerSearchImmediate()
     }
 
+    fun toggleArabicAnime() {
+        viewModelScope.launch {
+            val next = !_uiState.value.isArabicAnime
+            animeSettingsDataStore.setArabicAnime(next)
+            _uiState.update { it.copy(isArabicAnime = next) }
+            loadInitialDiscovery(next)
+            if (_uiState.value.query.isNotBlank()) {
+                executeSearch()
+            }
+        }
+    }
+
     fun selectSort(sort: String) {
         _uiState.update { it.copy(selectedSort = sort) }
         triggerSearchImmediate()
@@ -154,16 +191,27 @@ class AnimeSearchViewModel @Inject constructor(
 
         _uiState.update { it.copy(isLoading = true) }
         try {
-            val results = anilistService.searchAnime(
-                search = state.query,
-                genre = state.selectedGenre,
-                format = state.selectedFormat,
-                status = state.selectedStatus,
-                sort = state.selectedSort,
-                isAdult = state.isAdult,
-                perPage = 35
-            )
-            _uiState.update { it.copy(searchResults = results, isLoading = false) }
+            if (state.isArabicAnime) {
+                val results = if (state.query.isNotBlank()) {
+                    animeArabicService.search(state.query)
+                } else if (state.selectedGenre != null) {
+                    animeArabicService.search(state.selectedGenre)
+                } else {
+                    emptyList()
+                }
+                _uiState.update { it.copy(searchResults = results, isLoading = false) }
+            } else {
+                val results = anilistService.searchAnime(
+                    search = state.query,
+                    genre = state.selectedGenre,
+                    format = state.selectedFormat,
+                    status = state.selectedStatus,
+                    sort = state.selectedSort,
+                    isAdult = state.isAdult,
+                    perPage = 35
+                )
+                _uiState.update { it.copy(searchResults = results, isLoading = false) }
+            }
         } catch (_: Exception) {
             _uiState.update { it.copy(searchResults = emptyList(), isLoading = false) }
         }

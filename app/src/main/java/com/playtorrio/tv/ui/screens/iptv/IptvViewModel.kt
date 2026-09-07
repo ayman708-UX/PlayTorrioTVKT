@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -460,68 +461,49 @@ class IptvViewModel @Inject constructor(
 
             data class Candidate(val portal: VerifiedPortal, val stream: IptvStream, val url: String)
 
-            val candidateTasks = toScan.map { portal ->
-                async(Dispatchers.IO) {
+            // Concurrently scan portals and progressively emit feeds as soon as found!
+            val scanJobs = toScan.map { portal ->
+                launch(Dispatchers.IO) {
                     try {
-                        val streams = IptvClient.streams(portal.portal, IptvSection.LIVE, "")
-                        streams.filter { s ->
-                            HardcodedChannels.matches(s.name, channel.keywords, channel.exclude)
-                        }.map { s ->
-                            Candidate(portal, s, IptvClient.streamUrl(portal.portal, s))
+                        val matchingStreams = IptvClient.searchChannelInPortal(portal.portal, channel)
+                        if (matchingStreams.isEmpty()) return@launch
+
+                        val candidates = matchingStreams.mapNotNull { s ->
+                            val url = IptvClient.streamUrl(portal.portal, s)
+                            if (url.isNotEmpty() && !hitsMap.containsKey(url)) {
+                                Candidate(portal, s, url)
+                            } else null
                         }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                }
-            }
 
-            val candidateLists = candidateTasks.awaitAll()
-            val newCandidates = mutableListOf<Candidate>()
-            val seenUrls = mutableSetOf<String>()
-            for (list in candidateLists) {
-                for (c in list) {
-                    if (c.url.isNotEmpty() && !hitsMap.containsKey(c.url) && seenUrls.add(c.url)) {
-                        newCandidates.add(c)
-                    }
-                }
-            }
+                        if (candidates.isEmpty()) return@launch
 
-            if (newCandidates.isEmpty()) {
-                val remainingPortals = allPortals.count { !attempted.contains(it.key) }
-                _channelScanStatus.value = if (_channelHits.value.isEmpty()) {
-                    "No matching channels found in ${toScan.size} portals ($remainingPortals remaining). Try Scan More."
-                } else {
-                    "${_channelHits.value.size} alive · no new matches ($remainingPortals remaining)."
-                }
-                _isScanningChannel.value = false
-                return@launch
-            }
-
-            _channelScanStatus.value = "Found ${newCandidates.size} candidate feeds · checking health…"
-
-            val candidateByUrl = newCandidates.associateBy { it.url }
-            IptvAliveChecker.launchCheck(
-                streams = newCandidates.map { it.url to it.url },
-                onResult = { url, alive ->
-                    if (alive) {
-                        val c = candidateByUrl[url] ?: return@launchCheck
-                        if (!hitsMap.containsKey(url)) {
-                            val hit = ChannelHit(portal = c.portal, stream = c.stream, streamUrl = c.url)
-                            hitsMap[url] = hit
-                            _channelHits.value = hitsMap.values.toList()
-                            storage.saveChannelHits(channel.id, hitsMap.values.toList())
+                        candidates.forEach { c ->
+                            if (!isActive) return@launch
+                            val alive = IptvAliveChecker.isAlive(c.url)
+                            if (alive && isActive) {
+                                if (!hitsMap.containsKey(c.url)) {
+                                    val hit = ChannelHit(portal = c.portal, stream = c.stream, streamUrl = c.url)
+                                    hitsMap[c.url] = hit
+                                    val currentList = hitsMap.values.toList()
+                                    _channelHits.value = currentList
+                                    storage.saveChannelHits(channel.id, currentList)
+                                    _channelScanStatus.value = "Found ${currentList.size} active feeds · scanning…"
+                                }
+                            }
                         }
+                    } catch (_: Exception) {
                     }
-                },
-                onProgress = { p ->
-                    _channelScanStatus.value = "Sniffing ${p.checked}/${p.total} · ${p.alive} alive"
-                },
-                onDone = {
-                    val remainingPortals = allPortals.count { !attempted.contains(it.key) }
-                    _channelScanStatus.value = "Found ${_channelHits.value.size} active feeds ($remainingPortals portals remaining)"
-                },
-                isCancelled = { !isActive }
-            )
+                }
+            }
+
+            scanJobs.joinAll()
+
+            val remainingPortals = allPortals.count { !attempted.contains(it.key) }
+            _channelScanStatus.value = if (_channelHits.value.isEmpty()) {
+                "No active feeds found in ${toScan.size} portals ($remainingPortals remaining). Try Scan More."
+            } else {
+                "Found ${_channelHits.value.size} active feeds ($remainingPortals portals remaining)"
+            }
             _isScanningChannel.value = false
         }
     }

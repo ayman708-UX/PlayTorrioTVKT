@@ -2,6 +2,7 @@ package com.playtorrio.tv.core.iptv.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.playtorrio.tv.core.iptv.model.CatalogSource
 import com.playtorrio.tv.core.iptv.model.ChannelHit
 import com.playtorrio.tv.core.iptv.model.IptvPortal
 import com.playtorrio.tv.core.iptv.model.IptvStream
@@ -28,6 +29,7 @@ class IptvStorage @Inject constructor(
         private const val KEY_ATTEMPTED_KEYS = "pt_iptv_attempted_portal_keys"
         private const val KEY_FAVORITE_PORTALS = "pt_iptv_favorite_portal_keys"
         private const val KEY_M3U_PLAYLISTS = "pt_iptv_m3u_playlists"
+        private const val KEY_SCRAPE_SOURCE = "pt_iptv_scrape_source"
     }
 
     // ── Candidate Portals Pool (Persisted so 10,000 portals from paste.sh aren't lost) ──
@@ -275,5 +277,20 @@ class IptvStorage @Inject constructor(
             arr.put(o)
         }
         prefs.edit().putString(KEY_M3U_PLAYLISTS, arr.toString()).apply()
+    }
+
+    // ── Scrape Source Persistence ──
+
+    fun loadScrapeSource(): CatalogSource {
+        val name = prefs.getString(KEY_SCRAPE_SOURCE, CatalogSource.REDDIT.name)
+        return try {
+            CatalogSource.valueOf(name ?: CatalogSource.REDDIT.name)
+        } catch (_: Exception) {
+            CatalogSource.REDDIT
+        }
+    }
+
+    fun saveScrapeSource(source: CatalogSource) {
+        prefs.edit().putString(KEY_SCRAPE_SOURCE, source.name).apply()
     }
 }

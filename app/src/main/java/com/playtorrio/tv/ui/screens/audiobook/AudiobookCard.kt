@@ -16,11 +16,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import com.playtorrio.tv.ui.util.rememberLongPressKeyTracker
+import com.playtorrio.tv.ui.util.isSelectKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,9 +71,12 @@ fun AudiobookCard(
     progress: AudiobookProgress? = null,
     focusRequester: FocusRequester? = null,
     onFocus: (Audiobook) -> Unit = {},
-    onClick: (Audiobook) -> Unit = {}
+    onClick: (Audiobook) -> Unit = {},
+    onLongClick: ((Audiobook) -> Unit)? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    var longPressTriggered by remember { mutableStateOf(false) }
+    val longPressKeyTracker = rememberLongPressKeyTracker()
 
     LaunchedEffect(isFocused) {
         if (isFocused) {
@@ -93,7 +102,13 @@ fun AudiobookCard(
         horizontalAlignment = Alignment.Start
     ) {
         Card(
-            onClick = { onClick(book) },
+            onClick = {
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                } else {
+                    onClick(book)
+                }
+            },
             modifier = Modifier
                 .size(160.dp)
                 .then(
@@ -102,6 +117,43 @@ fun AudiobookCard(
                 )
                 .onFocusChanged {
                     isFocused = it.isFocused
+                }
+                .pointerInput(book.uuid) {
+                    detectTapGestures(
+                        onLongPress = {
+                            longPressTriggered = true
+                            onLongClick?.invoke(book)
+                        }
+                    )
+                }
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN && onLongClick != null) {
+                        if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                            longPressTriggered = true
+                            onLongClick(book)
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                    if (onLongClick != null &&
+                        longPressKeyTracker.handle(native, ::isSelectKey) {
+                            longPressTriggered = true
+                            onLongClick(book)
+                        }
+                    ) {
+                        if (native.action == AndroidKeyEvent.ACTION_UP) {
+                            longPressTriggered = false
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                    if (native.action == AndroidKeyEvent.ACTION_UP &&
+                        longPressTriggered &&
+                        (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU)
+                    ) {
+                        longPressTriggered = false
+                        return@onPreviewKeyEvent true
+                    }
+                    false
                 },
             shape = CardDefaults.shape(RoundedCornerShape(16.dp)),
             colors = CardDefaults.colors(

@@ -1,6 +1,5 @@
-package com.playtorrio.tv.ui.screens.audiobook
+package com.playtorrio.tv.ui.screens.manga
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,14 +25,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import com.playtorrio.tv.core.audiobook.model.AudiobookProgress
+import com.playtorrio.tv.core.manga.MangaReadingProgress
 import com.playtorrio.tv.ui.components.PlayTorrioDialog
 import com.playtorrio.tv.ui.theme.PlayTorrioTheme
 import androidx.compose.runtime.Composable
@@ -72,32 +70,19 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.playtorrio.tv.R
-import com.playtorrio.tv.core.audiobook.model.Audiobook
+import com.playtorrio.tv.core.manga.model.Manga
 import com.playtorrio.tv.ui.components.LoadingIndicator
-import com.playtorrio.tv.ui.components.P2pConsentDialog
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun AudiobookHomeScreen(
-    onNavigateToPlayer: () -> Unit,
-    viewModel: AudiobookViewModel = hiltViewModel()
+fun MangaHomeScreen(
+    onNavigateToDetails: (String) -> Unit,
+    onNavigateToReader: (seriesId: String, chapterId: String, chapterIndex: Int, pageIndex: Int) -> Unit = { _, _, _, _ -> },
+    viewModel: MangaHomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val continueListening by viewModel.continueListening.collectAsStateWithLifecycle()
-    val currentPlayingBook by viewModel.currentPlayingBook.collectAsStateWithLifecycle()
-    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
-    val needsP2pConsent by viewModel.needsP2pConsent.collectAsStateWithLifecycle()
-    var selectedAudiobookForOptions by remember { mutableStateOf<AudiobookProgress?>(null) }
-
-    val activeBook = uiState.focusedBook ?: uiState.spotlightBook ?: currentPlayingBook
-
-    // P2P Consent dialog if required for AudiobookBay
-    if (needsP2pConsent) {
-        P2pConsentDialog(
-            onEnableP2p = { viewModel.onP2pConsentGranted() },
-            onDismiss = { viewModel.onP2pConsentDismissed() }
-        )
-    }
+    val activeManga = uiState.focusedManga ?: uiState.spotlightManga
+    var selectedMangaForOptions by remember { mutableStateOf<MangaReadingProgress?>(null) }
 
     Box(
         modifier = Modifier
@@ -105,10 +90,10 @@ fun AudiobookHomeScreen(
             .background(Color(0xFF070A13))
     ) {
         // --- Ambient Dynamic Background Artwork ---
-        if (activeBook != null && activeBook.coverImage.isNotBlank()) {
+        if (activeManga != null && activeManga.coverNormal.isNotBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(activeBook.coverImage)
+                    .data(activeManga.coverNormal)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -154,7 +139,7 @@ fun AudiobookHomeScreen(
 
         // --- Main Content ---
         when {
-            uiState.isLoading && uiState.rows.isEmpty() -> {
+            uiState.isLoading && uiState.shelves.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -163,23 +148,23 @@ fun AudiobookHomeScreen(
                 }
             }
 
-            uiState.error != null && uiState.rows.isEmpty() -> {
+            uiState.error != null && uiState.shelves.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = uiState.error ?: "Unable to load audiobooks",
+                            text = uiState.error ?: "Unable to load manga",
                             color = Color.White,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
-                            onClick = { viewModel.loadAudiobookHome() },
+                            onClick = { viewModel.loadHomeData() },
                             colors = ButtonDefaults.colors(
-                                containerColor = Color(0xFF8B5CF6)
+                                containerColor = Color(0xFF0284C7)
                             )
                         ) {
                             Text("Retry")
@@ -196,31 +181,28 @@ fun AudiobookHomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 48.dp)
                 ) {
-                    // Item 1: Top Hero / Spotlight Section
-                    item(key = "audiobook_spotlight") {
-                        AudiobookSpotlightSection(
-                            book = activeBook,
-                            isPlayingThisBook = isPlaying && currentPlayingBook?.uuid == activeBook?.uuid,
-                            onPlayClick = {
-                                if (activeBook != null) {
-                                    if (currentPlayingBook?.uuid == activeBook.uuid && isPlaying) {
-                                        onNavigateToPlayer()
-                                    } else {
-                                        viewModel.playBook(activeBook)
-                                        onNavigateToPlayer()
-                                    }
+                    // Item 1: Top Hero / Spotlight Section with Search & Genres
+                    item(key = "manga_spotlight") {
+                        MangaSpotlightSection(
+                            manga = activeManga,
+                            onReadClick = {
+                                if (activeManga != null) {
+                                    onNavigateToDetails(activeManga.id)
                                 }
                             },
                             searchQuery = uiState.searchQuery,
                             isSearchMode = uiState.isSearchMode,
                             onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
-                            onToggleSearch = { viewModel.setSearchMode(!uiState.isSearchMode) }
+                            onToggleSearch = { viewModel.setSearchMode(!uiState.isSearchMode) },
+                            genres = uiState.genres,
+                            selectedGenre = uiState.selectedGenre,
+                            onSelectGenre = { viewModel.selectGenre(it) }
                         )
                     }
 
-                    // Item 2: Search Results
+                    // Item 2: Search Results Section
                     if (uiState.isSearchMode) {
-                        item(key = "audiobook_search_section") {
+                        item(key = "manga_search_section") {
                             Column(modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp)) {
                                 Text(
                                     text = if (uiState.isSearching) "Searching..."
@@ -236,10 +218,10 @@ fun AudiobookHomeScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(200.dp),
+                                            .height(220.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        CircularProgressIndicator(color = Color(0xFF8B5CF6))
+                                        CircularProgressIndicator(color = Color(0xFF38BDF8))
                                     }
                                 } else if (uiState.searchResults.isEmpty()) {
                                     Box(
@@ -249,7 +231,7 @@ fun AudiobookHomeScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = "No audiobooks found for \"${uiState.searchQuery}\"",
+                                            text = "No manga found for \"${uiState.searchQuery}\"",
                                             color = Color.White.copy(alpha = 0.6f),
                                             fontSize = 16.sp
                                         )
@@ -259,15 +241,49 @@ fun AudiobookHomeScreen(
                                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                                     ) {
-                                        items(uiState.searchResults, key = { "search_${it.uuid}" }) { book ->
-                                            AudiobookCard(
-                                                book = book,
-                                                isPlaying = isPlaying && currentPlayingBook?.uuid == book.uuid,
-                                                onFocus = { viewModel.setFocusedBook(it) },
-                                                onClick = {
-                                                    viewModel.playBook(it)
-                                                    onNavigateToPlayer()
-                                                }
+                                        items(uiState.searchResults, key = { "search_${it.id}" }) { manga ->
+                                            MangaCard(
+                                                manga = manga,
+                                                onFocus = { viewModel.setFocusedManga(it) },
+                                                onClick = { onNavigateToDetails(it.id) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (uiState.selectedGenre != "All") {
+                        // Genre Section
+                        item(key = "manga_genre_section") {
+                            Column(modifier = Modifier.padding(horizontal = 48.dp, vertical = 16.dp)) {
+                                Text(
+                                    text = "${uiState.selectedGenre} Manga",
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                if (uiState.isLoadingGenre) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(220.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(color = Color(0xFF38BDF8))
+                                    }
+                                } else {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                                    ) {
+                                        items(uiState.genreItems, key = { "genre_${it.id}" }) { manga ->
+                                            MangaCard(
+                                                manga = manga,
+                                                onFocus = { viewModel.setFocusedManga(it) },
+                                                onClick = { onNavigateToDetails(it.id) }
                                             )
                                         }
                                     }
@@ -275,34 +291,53 @@ fun AudiobookHomeScreen(
                             }
                         }
                     } else {
-                        // Item 3: Continue Listening (Only in Audiobooks section!)
-                        if (continueListening.isNotEmpty()) {
-                            item(key = "audiobook_continue_listening") {
+                        // Continue Reading Shelf
+                        if (uiState.continueReading.isNotEmpty()) {
+                            item(key = "manga_continue_reading_section") {
                                 Column(modifier = Modifier.padding(vertical = 12.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.audiobook_continue_listening),
-                                        color = Color.White,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         modifier = Modifier.padding(horizontal = 48.dp, vertical = 4.dp)
-                                    )
+                                    ) {
+                                        Text(
+                                            text = "Continue Reading",
+                                            color = Color.White,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF0284C7).copy(alpha = 0.25f))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "${uiState.continueReading.size}",
+                                                color = Color(0xFF38BDF8),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
 
                                     LazyRow(
                                         horizontalArrangement = Arrangement.spacedBy(18.dp),
                                         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 12.dp)
                                     ) {
-                                        items(continueListening, key = { "continue_${it.audiobook.uuid}" }) { progress ->
-                                            AudiobookCard(
-                                                book = progress.audiobook,
+                                        items(uiState.continueReading, key = { "reading_${it.mangaId}" }) { progress ->
+                                            MangaContinueReadingCard(
                                                 progress = progress,
-                                                isPlaying = isPlaying && currentPlayingBook?.uuid == progress.audiobook.uuid,
-                                                onFocus = { viewModel.setFocusedBook(it) },
                                                 onClick = {
-                                                    viewModel.playBook(progress.audiobook, progress)
-                                                    onNavigateToPlayer()
+                                                    onNavigateToReader(
+                                                        progress.mangaId,
+                                                        progress.chapterId,
+                                                        0,
+                                                        progress.pageIndex
+                                                    )
                                                 },
                                                 onLongClick = {
-                                                    selectedAudiobookForOptions = progress
+                                                    selectedMangaForOptions = it
                                                 }
                                             )
                                         }
@@ -312,10 +347,10 @@ fun AudiobookHomeScreen(
                         }
 
                         // Regular Shelves
-                        items(uiState.rows, key = { "row_${it.title}" }) { row ->
+                        items(uiState.shelves, key = { "shelf_${it.title}" }) { shelf ->
                             Column(modifier = Modifier.padding(vertical = 12.dp)) {
                                 Text(
-                                    text = row.title,
+                                    text = shelf.title,
                                     color = Color.White,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
@@ -326,15 +361,11 @@ fun AudiobookHomeScreen(
                                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                                     contentPadding = PaddingValues(horizontal = 48.dp, vertical = 12.dp)
                                 ) {
-                                    items(row.books, key = { "${row.title}_${it.uuid}" }) { book ->
-                                        AudiobookCard(
-                                            book = book,
-                                            isPlaying = isPlaying && currentPlayingBook?.uuid == book.uuid,
-                                            onFocus = { viewModel.setFocusedBook(it) },
-                                            onClick = {
-                                                viewModel.playBook(it)
-                                                onNavigateToPlayer()
-                                            }
+                                    items(shelf.items, key = { "${shelf.title}_${it.id}" }) { manga ->
+                                        MangaCard(
+                                            manga = manga,
+                                            onFocus = { viewModel.setFocusedManga(it) },
+                                            onClick = { onNavigateToDetails(it.id) }
                                         )
                                     }
                                 }
@@ -345,7 +376,7 @@ fun AudiobookHomeScreen(
             }
         }
 
-        val optionsProgress = selectedAudiobookForOptions
+        val optionsProgress = selectedMangaForOptions
         if (optionsProgress != null) {
             val removeFocusRequester = remember { FocusRequester() }
             LaunchedEffect(Unit) {
@@ -353,14 +384,14 @@ fun AudiobookHomeScreen(
             }
 
             PlayTorrioDialog(
-                onDismiss = { selectedAudiobookForOptions = null },
-                title = optionsProgress.audiobook.title,
-                subtitle = "Continue Listening • ${optionsProgress.chapterTitle.ifBlank { "Chapter ${optionsProgress.chapterIndex + 1}" }}"
+                onDismiss = { selectedMangaForOptions = null },
+                title = optionsProgress.title,
+                subtitle = "Continue Reading • ${optionsProgress.chapterName}"
             ) {
                 Button(
                     onClick = {
-                        viewModel.removeContinueListening(optionsProgress.audiobook.uuid)
-                        selectedAudiobookForOptions = null
+                        viewModel.removeFromContinueReading(optionsProgress.mangaId)
+                        selectedMangaForOptions = null
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -374,15 +405,14 @@ fun AudiobookHomeScreen(
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Remove from Continue Listening", fontWeight = FontWeight.SemiBold)
+                    Text("Remove from Continue Reading", fontWeight = FontWeight.SemiBold)
                 }
 
                 Button(
                     onClick = {
-                        val book = optionsProgress.audiobook
-                        selectedAudiobookForOptions = null
-                        viewModel.playBook(book, optionsProgress)
-                        onNavigateToPlayer()
+                        val id = optionsProgress.mangaId
+                        selectedMangaForOptions = null
+                        onNavigateToDetails(id)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.colors(
@@ -390,13 +420,13 @@ fun AudiobookHomeScreen(
                         contentColor = PlayTorrioTheme.colors.TextPrimary
                     )
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Resume Listening")
+                    Text("Go to Details")
                 }
 
                 Button(
-                    onClick = { selectedAudiobookForOptions = null },
+                    onClick = { selectedMangaForOptions = null },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.colors(
                         containerColor = PlayTorrioTheme.colors.BackgroundCard,
@@ -412,41 +442,84 @@ fun AudiobookHomeScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun AudiobookSpotlightSection(
-    book: Audiobook?,
-    isPlayingThisBook: Boolean,
-    onPlayClick: () -> Unit,
+private fun MangaSpotlightSection(
+    manga: Manga?,
+    onReadClick: () -> Unit,
     searchQuery: String,
     isSearchMode: Boolean,
     onSearchQueryChanged: (String) -> Unit,
-    onToggleSearch: () -> Unit
+    onToggleSearch: () -> Unit,
+    genres: List<String>,
+    selectedGenre: String,
+    onSelectGenre: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp, vertical = 32.dp)
+            .padding(horizontal = 48.dp, vertical = 28.dp)
     ) {
-        // Top Row: Category tag + Search button
+        // Top Row: Category badge + Genre Pills + Search Toggle
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Category Badge
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF8B5CF6).copy(alpha = 0.25f))
-                    .border(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "PLAYTORRIO AUDIOBOOKS",
-                    color = Color(0xFFC084FC),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                // Category Badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF0284C7).copy(alpha = 0.25f))
+                        .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "PLAYTORRIO MANGA",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Genre Pills
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp)
+                ) {
+                    items(genres.take(12)) { genre ->
+                        val isSelected = genre == selectedGenre
+                        Surface(
+                            onClick = { onSelectGenre(genre) },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (isSelected) Color(0xFF0284C7) else Color.White.copy(alpha = 0.08f),
+                                focusedContainerColor = Color(0xFF38BDF8)
+                            ),
+                            border = ClickableSurfaceDefaults.border(
+                                focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                            ),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = genre,
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.8f),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Search Bar & Toggle
@@ -456,14 +529,14 @@ private fun AudiobookSpotlightSection(
 
                     Box(
                         modifier = Modifier
-                            .width(320.dp)
-                            .height(40.dp)
+                            .width(280.dp)
+                            .height(38.dp)
                             .clip(RoundedCornerShape(20.dp))
                             .background(Color(0xFF1E2435))
                             .border(
                                 BorderStroke(
                                     1.5.dp,
-                                    if (isSearchFocused) Color(0xFF8B5CF6) else Color.White.copy(alpha = 0.2f)
+                                    if (isSearchFocused) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.2f)
                                 ),
                                 RoundedCornerShape(20.dp)
                             )
@@ -476,19 +549,19 @@ private fun AudiobookSpotlightSection(
                             singleLine = true,
                             textStyle = TextStyle(
                                 color = Color.White,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
                             ),
-                            cursorBrush = SolidColor(Color(0xFF8B5CF6)),
+                            cursorBrush = SolidColor(Color(0xFF38BDF8)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onFocusChanged { isSearchFocused = it.isFocused },
                             decorationBox = { innerTextField ->
                                 if (searchQuery.isEmpty()) {
                                     Text(
-                                        text = stringResource(R.string.audiobook_search_hint),
+                                        text = stringResource(R.string.manga_search_hint),
                                         color = Color.White.copy(alpha = 0.45f),
-                                        fontSize = 13.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                                 innerTextField()
@@ -502,11 +575,11 @@ private fun AudiobookSpotlightSection(
                 // Search / Close Button
                 Surface(
                     onClick = onToggleSearch,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(38.dp),
                     shape = ClickableSurfaceDefaults.shape(CircleShape),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (isSearchMode) Color(0xFF8B5CF6) else Color.White.copy(alpha = 0.1f),
-                        focusedContainerColor = Color(0xFFA78BFA)
+                        containerColor = if (isSearchMode) Color(0xFF0284C7) else Color.White.copy(alpha = 0.1f),
+                        focusedContainerColor = Color(0xFF38BDF8)
                     ),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = Border(BorderStroke(2.dp, Color.White))
@@ -518,19 +591,19 @@ private fun AudiobookSpotlightSection(
                             imageVector = if (isSearchMode) Icons.Default.Close else Icons.Default.Search,
                             contentDescription = if (isSearchMode) "Close Search" else "Search",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
-        // Spotlight Audiobook Information
-        if (book != null) {
+        // Spotlight Information
+        if (manga != null) {
             Text(
-                text = book.title,
+                text = manga.title,
                 color = Color.White,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -541,25 +614,55 @@ private fun AudiobookSpotlightSection(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            Text(
-                text = (book.author.ifBlank { book.source.replaceFirstChar { it.uppercase() } }) +
-                    "  •  Source: ${book.source}",
-                color = Color(0xFFA78BFA),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(0.65f)
-            )
+            val metaText = buildString {
+                if (manga.author.isNotBlank()) append(manga.author)
+                if (manga.year.isNotBlank()) {
+                    if (isNotEmpty()) append("  •  ")
+                    append(manga.year)
+                }
+                if (manga.status.isNotBlank()) {
+                    if (isNotEmpty()) append("  •  ")
+                    append(manga.status)
+                }
+                if (manga.type.isNotBlank()) {
+                    if (isNotEmpty()) append("  •  ")
+                    append(manga.type)
+                }
+            }
+
+            if (metaText.isNotBlank()) {
+                Text(
+                    text = metaText,
+                    color = Color(0xFF38BDF8),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.65f)
+                )
+            }
+
+            if (manga.synopsis.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = manga.synopsis,
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontSize = 13.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.fillMaxWidth(0.65f)
+                )
+            }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Listen Now Action Button
+            // Action Button
             Button(
-                onClick = onPlayClick,
+                onClick = onReadClick,
                 colors = ButtonDefaults.colors(
-                    containerColor = Color(0xFF8B5CF6),
-                    focusedContainerColor = Color(0xFFA78BFA)
+                    containerColor = Color(0xFF0284C7),
+                    focusedContainerColor = Color(0xFF38BDF8)
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
                 border = ButtonDefaults.border(
@@ -570,31 +673,31 @@ private fun AudiobookSpotlightSection(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (isPlayingThisBook) Icons.Default.Pause else Icons.Default.Headphones,
+                        imageVector = Icons.Default.MenuBook,
                         contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        tint = Color(0xFF070A13),
+                        modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isPlayingThisBook) "Pause" else stringResource(R.string.audiobook_spotlight_play),
-                        color = Color.White,
+                        text = stringResource(R.string.manga_spotlight_read),
+                        color = Color(0xFF070A13),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         } else {
-            // Placeholder when no book is selected
+            // Placeholder when no manga is focused
             Text(
-                text = "Discover Audiobooks",
+                text = "Discover Manga",
                 color = Color.White,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.ExtraBold
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Stream thousands of full-length audiobooks across 9 sources",
+                text = "Read trending manga, manhwa, and manhua on your TV",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 16.sp
             )

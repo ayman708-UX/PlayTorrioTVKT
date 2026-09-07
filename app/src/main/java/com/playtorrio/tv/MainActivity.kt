@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -166,6 +168,7 @@ import com.playtorrio.tv.ui.navigation.Screen
 import com.playtorrio.tv.ui.membership.LocalMemberAccess
 import com.playtorrio.tv.ui.screens.account.AuthQrSignInScreen
 import com.playtorrio.tv.ui.screens.addon.EssentialAddonSetupScreen
+import com.playtorrio.tv.ui.screens.profile.ProfileSelectionMode
 import com.playtorrio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.playtorrio.tv.ui.theme.PlayTorrioComponents
 import com.playtorrio.tv.ui.theme.PlayTorrioLayout
@@ -753,6 +756,7 @@ open class MainActivity : ComponentActivity() {
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavIptv = stringResource(R.string.nav_iptv)
                     val strNavAnime = stringResource(R.string.nav_anime)
+                    val strNavManga = stringResource(R.string.nav_manga)
                     val strNavMusic = stringResource(R.string.nav_music)
                     val strNavAudiobooks = stringResource(R.string.nav_audiobooks)
                     val strNavDiscover = stringResource(R.string.nav_discover)
@@ -763,6 +767,7 @@ open class MainActivity : ComponentActivity() {
                         strNavLibrary,
                         strNavIptv,
                         strNavAnime,
+                        strNavManga,
                         strNavMusic,
                         strNavAudiobooks,
                         strNavDiscover,
@@ -797,6 +802,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.Anime.route,
                                     label = strNavAnime,
                                     icon = Icons.Default.Animation
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Manga.route,
+                                    label = strNavManga,
+                                    icon = Icons.Default.MenuBook
                                 )
                             )
                             add(
@@ -881,46 +893,61 @@ open class MainActivity : ComponentActivity() {
                         onFeedbackShown = updateViewModel::consumeFeedbackMessage
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (modernSidebarEnabled) {
-                                ModernSidebarScaffold(
-                                    longPressBackHeld = longPressBackHeld,
-                                    navController = navController,
-                                    startDestination = startDestination,
-                                    currentRoute = currentRoute,
-                                    rootRoutes = rootRoutes,
-                                    drawerItems = drawerItems,
-                                    selectedDrawerRoute = selectedDrawerRoute,
-                                    selectedDrawerItem = selectedDrawerItem,
-                                    sidebarCollapsed = sidebarCollapsed,
-                                    modernSidebarBlurEnabled = modernSidebarBlurEnabled,
-                                    hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
-                                    activeProfileName = activeProfile?.name ?: "",
-                                    activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
-                                    activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                                    showProfileSelector = profiles.size > 1,
-                                    onSwitchProfile = { hasSelectedProfileThisSession = false },
-                                    onNavigate = { optimisticRoute = it },
-                                    onExitApp = handleExitApp
+                            if (!hasSelectedProfileThisSession) {
+                                ProfileSelectionScreen(
+                                    onProfileSelected = {
+                                        hasSelectedProfileThisSession = true
+                                        if (authManager.authState.value is AuthState.FullAccount) {
+                                            startupSyncService.requestSyncNow()
+                                        }
+                                    },
+                                    screenMode = ProfileSelectionMode.Selection,
+                                    onBackPress = if (activeProfile != null) {
+                                        { hasSelectedProfileThisSession = true }
+                                    } else null
                                 )
                             } else {
-                                LegacySidebarScaffold(
-                                    longPressBackHeld = longPressBackHeld,
-                                    navController = navController,
-                                    startDestination = startDestination,
-                                    currentRoute = currentRoute,
-                                    rootRoutes = rootRoutes,
-                                    drawerItems = drawerItems,
-                                    selectedDrawerRoute = selectedDrawerRoute,
-                                    sidebarCollapsed = sidebarCollapsed,
-                                    hideBuiltInHeaders = false,
-                                    activeProfileName = activeProfile?.name ?: "",
-                                    activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
-                                    activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                                    showProfileSelector = profiles.size > 1,
-                                    onSwitchProfile = { hasSelectedProfileThisSession = false },
-                                    onNavigate = { optimisticRoute = it },
-                                    onExitApp = handleExitApp
-                                )
+                                if (modernSidebarEnabled) {
+                                    ModernSidebarScaffold(
+                                        longPressBackHeld = longPressBackHeld,
+                                        navController = navController,
+                                        startDestination = startDestination,
+                                        currentRoute = currentRoute,
+                                        rootRoutes = rootRoutes,
+                                        drawerItems = drawerItems,
+                                        selectedDrawerRoute = selectedDrawerRoute,
+                                        selectedDrawerItem = selectedDrawerItem,
+                                        sidebarCollapsed = sidebarCollapsed,
+                                        modernSidebarBlurEnabled = modernSidebarBlurEnabled,
+                                        hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
+                                        activeProfileName = activeProfile?.name ?: "",
+                                        activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                                        activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                                        showProfileSelector = profiles.isNotEmpty(),
+                                        onSwitchProfile = { hasSelectedProfileThisSession = false },
+                                        onNavigate = { optimisticRoute = it },
+                                        onExitApp = handleExitApp
+                                    )
+                                } else {
+                                    LegacySidebarScaffold(
+                                        longPressBackHeld = longPressBackHeld,
+                                        navController = navController,
+                                        startDestination = startDestination,
+                                        currentRoute = currentRoute,
+                                        rootRoutes = rootRoutes,
+                                        drawerItems = drawerItems,
+                                        selectedDrawerRoute = selectedDrawerRoute,
+                                        sidebarCollapsed = sidebarCollapsed,
+                                        hideBuiltInHeaders = false,
+                                        activeProfileName = activeProfile?.name ?: "",
+                                        activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
+                                        activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
+                                        showProfileSelector = profiles.isNotEmpty(),
+                                        onSwitchProfile = { hasSelectedProfileThisSession = false },
+                                        onNavigate = { optimisticRoute = it },
+                                        onExitApp = handleExitApp
+                                    )
+                                }
                             }
 
                             val autoNextOverlay by externalPlaybackTracker.autoNextOverlay.collectAsState()

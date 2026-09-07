@@ -45,6 +45,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
     private var customExtractorsFactory: ExtractorsFactory? = null
     private var customSubtitleParserFactory: SubtitleParser.Factory? = null
     private val loadErrorHandlingPolicy = PlayerLoadErrorHandlingPolicy()
+    private val iptvLiveLoadErrorHandlingPolicy = IptvLiveLoadErrorHandlingPolicy()
 
     @Volatile private var currentVodCacheUrl: String? = null
     @Volatile private var currentVodCacheResolvedUrl: String? = null
@@ -88,11 +89,16 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         responseHeaders: Map<String, String> = emptyMap(),
         mimeTypeOverride: String? = null,
         audioDelayUsProvider: (() -> Long)? = null,
-        mediaMetadata: androidx.media3.common.MediaMetadata? = null
+        mediaMetadata: androidx.media3.common.MediaMetadata? = null,
+        isIptvStream: Boolean = false
     ): MediaSource {
         val resolvedHeaders = com.playtorrio.tv.core.network.CdnHeaderResolver.resolveStreamHeaders(url, headers)
         val sanitizedHeaders = sanitizeHeaders(resolvedHeaders)
-        val httpDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
+        val httpDataSourceFactory = if (isIptvStream) {
+            PlayerPlaybackNetworking.createIptvDataSourceFactory(context, sanitizedHeaders)
+        } else {
+            PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
+        }
 
         val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
             url = url,
@@ -107,15 +113,27 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         filename?.takeIf { it.isNotBlank() }?.let(mediaItemBuilder::setMediaId)
         mediaMetadata?.let(mediaItemBuilder::setMediaMetadata)
 
+        if (isIptvStream) {
+            mediaItemBuilder.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setMaxPlaybackSpeed(1.02f)
+                    .setMinPlaybackSpeed(0.98f)
+                    .setTargetOffsetMs(4_000)
+                    .setMinOffsetMs(2_000)
+                    .setMaxOffsetMs(10_000)
+                    .build()
+            )
+        }
+
         if (subtitleConfigurations.isNotEmpty()) {
             mediaItemBuilder.setSubtitleConfigurations(subtitleConfigurations)
         }
 
         val mediaItem = mediaItemBuilder.build()
 
-        val mp4SessionMode = !useParallelConnections && !isHls && !isDash &&
+        val mp4SessionMode = !isIptvStream && !useParallelConnections && !isHls && !isDash &&
             resolvedMimeType == MimeTypes.VIDEO_MP4
-        val useChunkSessionSource = (useParallelConnections || mp4SessionMode) && !isHls && !isDash
+        val useChunkSessionSource = !isIptvStream && (useParallelConnections || mp4SessionMode) && !isHls && !isDash
         parallelStartupPrefetchUnlocked.set(!useChunkSessionSource)
         val progressiveUpstreamFactory: DataSource.Factory = if (useChunkSessionSource) {
             if (mp4SessionMode) {
@@ -152,8 +170,8 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             httpDataSourceFactory
         }
 
-        // 2. VOD disk cache (opt-in).
-        val useVodCache = ENABLE_VOD_CACHE && vodCacheEnabled && !isHls && !isDash && shouldUseVodCache(url)
+        // 2. VOD disk cache (opt-in). Never use VOD disk cache on live IPTV streams.
+        val useVodCache = !isIptvStream && ENABLE_VOD_CACHE && vodCacheEnabled && !isHls && !isDash && shouldUseVodCache(url)
         val previousVodCacheActive = currentVodCacheActive
         currentVodCacheUrl = url
         currentVodCacheResolvedUrl = null
@@ -196,13 +214,14 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
             )
         }
 
+        val effectiveErrorPolicy = if (isIptvStream) iptvLiveLoadErrorHandlingPolicy else loadErrorHandlingPolicy
         val mediaSource = when {
             isHls && !forceDefaultFactory -> HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(true)
-                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .setLoadErrorHandlingPolicy(effectiveErrorPolicy)
                 .createMediaSource(mediaItem)
             isDash && !forceDefaultFactory -> DashMediaSource.Factory(httpDataSourceFactory)
-                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .setLoadErrorHandlingPolicy(effectiveErrorPolicy)
                 .createMediaSource(mediaItem)
             else -> defaultFactory.createMediaSource(mediaItem)
         }
@@ -764,4 +783,33 @@ private class PlayerLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy(6) 
             }
         } else super.getRetryDelayMsFor(loadErrorInfo)
     }
+}
+
+/**
+ * Resilient error handling policy tailored for live IPTV streams.
+ * Live streams experience transient 404/503 responses on sliding manifest rolls or encoder glitches.
+ * Instead of immediately terminating playback on 404, it rapidly retries (500ms, 1000ms, 1500ms)
+ * to catch the next chunk, only failing on permanent authentication errors (401, 403) or after 5 consecutive 404s.
+ */
+private class IptvLiveLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy(6) {
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        val httpException = loadErrorInfo.exception.findCause<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+        if (httpException != null) {
+            val code = httpException.responseCode
+            if (code == 401 || code == 403) {
+                return androidx.media3.common.C.TIME_UNSET
+            }
+            if (code == 404 && loadErrorInfo.errorCount >= 5) {
+                return androidx.media3.common.C.TIME_UNSET
+            }
+        }
+        return when (loadErrorInfo.errorCount) {
+            1 -> 500L
+            2 -> 1000L
+            3 -> 1500L
+            else -> 2500L
+        }
+    }
+
+    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 6
 }

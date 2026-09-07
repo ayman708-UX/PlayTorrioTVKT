@@ -251,6 +251,27 @@ object PlayTorrioExoPlayerPerformanceHelper {
     }
 
     /**
+     * Builds a [DefaultLoadControl] tuned specifically for live IPTV streams based on
+     * Televizo's architecture: small sliding-window buffers (6s-15s), fast startup (1.5s),
+     * rapid rebuffer recovery (2.5s), 0 back-buffer to prevent stale memory retention,
+     * and a 16MB target cap.
+     */
+    fun buildIptvLiveLoadControl(): DefaultLoadControl {
+        return DefaultLoadControl.Builder()
+            .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+            .setTargetBufferBytes(16 * 1024 * 1024)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 6_000,
+                /* maxBufferMs = */ 15_000,
+                /* bufferForPlaybackMs = */ 1_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_500
+            )
+            .setBackBuffer(/* backBufferDurationMs = */ 0, /* retainBackBufferFromKeyframe = */ false)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+    }
+
+    /**
      * Builds a [DefaultLoadControl] tuned for PlayTorrio performance when enabled,
      * or a standard ExoPlayer [DefaultLoadControl] when disabled.
      */

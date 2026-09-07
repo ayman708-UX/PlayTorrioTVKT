@@ -7,6 +7,9 @@ import com.playtorrio.tv.core.network.NetworkResult
 import com.playtorrio.tv.core.plugin.PluginManager
 import com.playtorrio.tv.core.profile.ProfileManager
 import com.playtorrio.tv.core.tmdb.TmdbService
+import com.playtorrio.tv.core.scraper.p2p.PlayTorrioP2PScraperManager
+import com.playtorrio.tv.core.torrent.TorrentSettings
+import com.playtorrio.tv.core.torrent.TorrentSettingsData
 import com.playtorrio.tv.data.local.DebridSettingsDataStore
 import com.playtorrio.tv.data.remote.api.AddonApi
 import com.playtorrio.tv.data.remote.dto.StreamDto
@@ -122,7 +125,48 @@ class StreamRepositoryPluginIsolationTest {
         coVerify(exactly = 0) { harness.addonRepository.fetchAddon(any()) }
     }
 
-    private fun newHarness(enabledScrapers: List<ScraperInfo>): Harness {
+    @Test
+    fun `when P2P is disabled, built-in PlayTorrio P2P scraper is not run`() = runTest {
+        val harness = newHarness(enabledScrapers = emptyList(), p2pEnabled = false)
+
+        val results = harness.repository.getStreamsFromAllAddons(
+            type = "movie",
+            videoId = "tt1341338",
+            season = null,
+            episode = null
+        ).toList()
+
+        assertTrue(results.last() is NetworkResult.Success)
+        coVerify(exactly = 0) {
+            harness.playTorrioP2PScraperManager.scrapeStreamsDynamic(
+                any(), any(), any(), any(), any(), any(), any(), any()
+            )
+        }
+    }
+
+    @Test
+    fun `when P2P is enabled, built-in PlayTorrio P2P scraper is run`() = runTest {
+        val harness = newHarness(enabledScrapers = emptyList(), p2pEnabled = true)
+
+        val results = harness.repository.getStreamsFromAllAddons(
+            type = "movie",
+            videoId = "tt1341338",
+            season = null,
+            episode = null
+        ).toList()
+
+        assertTrue(results.last() is NetworkResult.Success)
+        coVerify(atLeast = 1) {
+            harness.playTorrioP2PScraperManager.scrapeStreamsDynamic(
+                any(), any(), any(), any(), any(), any(), any(), any()
+            )
+        }
+    }
+
+    private fun newHarness(
+        enabledScrapers: List<ScraperInfo>,
+        p2pEnabled: Boolean = false
+    ): Harness {
         val addon = compatibleAddon()
         val api = mockk<AddonApi>()
         coEvery { api.getStreams(any()) } returns Response.success(
@@ -163,6 +207,9 @@ class StreamRepositoryPluginIsolationTest {
         coEvery { availability.annotateCachedAvailability(any()) } coAnswers {
             firstArg<List<AddonStreams>>()
         }
+        val torrentSettings = mockk<TorrentSettings>()
+        every { torrentSettings.settings } returns flowOf(TorrentSettingsData(p2pEnabled = p2pEnabled))
+        val playTorrioP2PScraperManager = mockk<PlayTorrioP2PScraperManager>(relaxed = true)
 
         return Harness(
             repository = StreamRepositoryImpl(
@@ -176,11 +223,13 @@ class StreamRepositoryPluginIsolationTest {
                 debridStreamPresentation = presentation,
                 localDebridAvailabilityService = availability,
                 playTorrioHttpScraperManager = mockk(relaxed = true),
-                playTorrioP2PScraperManager = mockk(relaxed = true)
+                playTorrioP2PScraperManager = playTorrioP2PScraperManager,
+                torrentSettings = torrentSettings
             ),
             api = api,
             tmdbService = tmdbService,
-            addonRepository = addonRepository
+            addonRepository = addonRepository,
+            playTorrioP2PScraperManager = playTorrioP2PScraperManager
         )
     }
 
@@ -226,6 +275,7 @@ class StreamRepositoryPluginIsolationTest {
         val repository: StreamRepositoryImpl,
         val api: AddonApi,
         val tmdbService: TmdbService,
-        val addonRepository: AddonRepository
+        val addonRepository: AddonRepository,
+        val playTorrioP2PScraperManager: PlayTorrioP2PScraperManager
     )
 }

@@ -3,7 +3,9 @@ package com.playtorrio.tv.core.scraper.p2p
 import android.util.Log
 import com.playtorrio.tv.core.scraper.ScraperMediaRequest
 import com.playtorrio.tv.domain.model.Stream
+import com.playtorrio.tv.core.torrent.TorrentSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -12,7 +14,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class PlayTorrioP2PScraperManager @Inject constructor() {
+class PlayTorrioP2PScraperManager @Inject constructor(
+    private val torrentSettings: TorrentSettings
+) {
     companion object {
         private const val TAG = "PlayTorrioP2PManager"
         const val ADDON_NAME = "PlayTorrio"
@@ -31,6 +35,10 @@ class PlayTorrioP2PScraperManager @Inject constructor() {
         tmdbId: Int? = null,
         onStreamsFound: suspend (List<Stream>) -> Unit
     ) = withContext(Dispatchers.IO) {
+        if (!torrentSettings.settings.first().p2pEnabled) {
+            Log.d(TAG, "P2P streaming is disabled in settings, skipping PlayTorrio P2P scrape")
+            return@withContext
+        }
         val request = ScraperMediaRequest(
             type = type,
             title = title,

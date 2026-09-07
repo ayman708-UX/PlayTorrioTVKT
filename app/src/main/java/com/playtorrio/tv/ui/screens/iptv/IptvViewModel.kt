@@ -49,14 +49,12 @@ class IptvViewModel @Inject constructor(
         private const val TAG = "IptvViewModel"
     }
 
-    private val _scrapeSource = MutableStateFlow(CatalogSource.CLOUD_VAULT)
+    private val _scrapeSource = MutableStateFlow(storage.loadScrapeSource())
     val scrapeSource: StateFlow<CatalogSource> = _scrapeSource.asStateFlow()
 
     fun setScrapeSource(source: CatalogSource) {
-        if (_scrapeSource.value != source) {
-            _scrapeSource.value = source
-            scrapePortals(reset = true)
-        }
+        _scrapeSource.value = source
+        storage.saveScrapeSource(source)
     }
 
     fun toggleScrapeSource() {
@@ -107,6 +105,13 @@ class IptvViewModel @Inject constructor(
 
     private val _browserSelectedCategoryId = MutableStateFlow("")
     val browserSelectedCategoryId: StateFlow<String> = _browserSelectedCategoryId.asStateFlow()
+
+    private val _lastPlayedStreamId = MutableStateFlow<String?>(null)
+    val lastPlayedStreamId: StateFlow<String?> = _lastPlayedStreamId.asStateFlow()
+
+    fun setLastPlayedStreamId(id: String?) {
+        _lastPlayedStreamId.value = id
+    }
 
     private val _browserAliveIds = MutableStateFlow<Set<String>>(emptySet())
     val browserAliveIds: StateFlow<Set<String>> = _browserAliveIds.asStateFlow()
@@ -514,10 +519,13 @@ class IptvViewModel @Inject constructor(
             try {
                 val cats = IptvClient.categories(portal.portal, section)
                 _browserCategories.value = cats
-                if (cats.isNotEmpty()) {
-                    loadPortalStreams(portal, section, cats.first().id)
-                } else {
-                    loadPortalStreams(portal, section, "")
+                val currentSelected = _browserSelectedCategoryId.value
+                val targetCat = cats.firstOrNull { it.id == currentSelected } ?: cats.firstOrNull()
+                val targetCatId = targetCat?.id ?: ""
+
+                // Preserve existing loaded category streams if already populated
+                if (_browserSelectedCategoryId.value != targetCatId || _browserStreams.value.isEmpty()) {
+                    loadPortalStreams(portal, section, targetCatId)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed loading categories: ${e.message}")

@@ -20,10 +20,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import com.playtorrio.tv.core.iptv.context.IptvChannelContextHolder
+import com.playtorrio.tv.ui.screens.detail.requestFocusAfterFrames
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -82,9 +88,13 @@ fun IptvPortalBrowserScreen(
     val streams by viewModel.browserStreams.collectAsState()
     val isLoading by viewModel.isBrowserLoading.collectAsState()
     val selectedCatId by viewModel.browserSelectedCategoryId.collectAsState()
+    val lastPlayedId by viewModel.lastPlayedStreamId.collectAsState()
     val aliveIds by viewModel.browserAliveIds.collectAsState()
     val isAliveChecking by viewModel.isAliveChecking.collectAsState()
     val aliveProgress by viewModel.aliveProgress.collectAsState()
+
+    val gridState = rememberLazyGridState()
+    val categoryListState = rememberLazyListState()
 
     LaunchedEffect(portal, activeSection) {
         viewModel.loadPortalCategories(portal, activeSection)
@@ -93,6 +103,29 @@ fun IptvPortalBrowserScreen(
     val filteredStreams = remember(streams, searchQuery) {
         if (searchQuery.isBlank()) streams else {
             streams.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    val focusRequesters = remember(filteredStreams) {
+        filteredStreams.associate { it.streamId to FocusRequester() }
+    }
+
+    LaunchedEffect(filteredStreams, lastPlayedId) {
+        val targetId = lastPlayedId ?: return@LaunchedEffect
+        val index = filteredStreams.indexOfFirst { it.streamId == targetId }
+        if (index >= 0) {
+            gridState.scrollToItem(index)
+            focusRequesters[targetId]?.requestFocusAfterFrames(2)
+            viewModel.setLastPlayedStreamId(null)
+        }
+    }
+
+    val selectedCatIndex = remember(categories, selectedCatId) {
+        categories.indexOfFirst { it.id == selectedCatId }
+    }
+    LaunchedEffect(selectedCatIndex) {
+        if (selectedCatIndex >= 0) {
+            categoryListState.animateScrollToItem(selectedCatIndex)
         }
     }
 
@@ -178,6 +211,7 @@ fun IptvPortalBrowserScreen(
 
             // Categories List
             LazyColumn(
+                state = categoryListState,
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -259,6 +293,7 @@ fun IptvPortalBrowserScreen(
                 }
             } else {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Adaptive(minSize = 180.dp),
                     contentPadding = PaddingValues(bottom = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -266,10 +301,20 @@ fun IptvPortalBrowserScreen(
                 ) {
                     items(filteredStreams, key = { it.streamId }) { stream ->
                         val isAlive = aliveIds.contains(stream.streamId)
+                        val focusRequester = focusRequesters[stream.streamId]
                         IptvStreamCard(
                             stream = stream,
                             isAlive = isAlive,
+                            focusRequester = focusRequester,
                             onClick = {
+                                val activeCatName = categories.firstOrNull { it.id == selectedCatId }?.name ?: "Channels"
+                                IptvChannelContextHolder.setPortalContext(
+                                    portal = portal,
+                                    categoryName = activeCatName,
+                                    currentStreamId = stream.streamId,
+                                    channels = filteredStreams
+                                )
+                                viewModel.setLastPlayedStreamId(stream.streamId)
                                 val url = viewModel.getStreamUrl(portal, stream)
                                 onPlayStream(url, stream.name)
                             }
@@ -350,6 +395,7 @@ fun CategoryItemRow(
 fun IptvStreamCard(
     stream: IptvStream,
     isAlive: Boolean,
+    focusRequester: FocusRequester? = null,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -359,6 +405,7 @@ fun IptvStreamCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(100.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .focusable(interactionSource = interactionSource),
         shape = RoundedCornerShape(10.dp),

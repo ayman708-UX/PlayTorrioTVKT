@@ -1,11 +1,16 @@
 package com.playtorrio.tv.ui.screens.iptv
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -31,13 +36,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -47,39 +51,58 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border as TvBorder
+import androidx.tv.material3.Card as TvCard
+import androidx.tv.material3.CardDefaults as TvCardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import coil3.compose.AsyncImage
 import com.playtorrio.tv.core.iptv.channels.HardcodedChannel
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HardcodedChannelCard(
     channel: HardcodedChannel,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val scale by animateFloatAsState(if (isFocused) 1.08f else 1.0f, label = "cardScale")
-
-    val bgGradient = if (channel.gradient.isNotEmpty()) {
-        Brush.verticalGradient(channel.gradient)
-    } else {
-        Brush.verticalGradient(listOf(Color(0xFF1E2235), Color(0xFF131522)))
+    val cardShape = remember { RoundedCornerShape(12.dp) }
+    val bgGradient = remember(channel.gradient) {
+        if (channel.gradient.isNotEmpty()) {
+            Brush.verticalGradient(channel.gradient)
+        } else {
+            Brush.verticalGradient(listOf(Color(0xFF1E2235), Color(0xFF131522)))
+        }
     }
 
-    Card(
+    TvCard(
+        onClick = onClick,
         modifier = modifier
             .width(180.dp)
-            .aspectRatio(16f / 10f)
-            .scale(scale)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .focusable(interactionSource = interactionSource),
-        shape = RoundedCornerShape(12.dp),
-        border = if (isFocused) BorderStroke(2.5.dp, Color.White) else BorderStroke(1.dp, Color(0x33FFFFFF)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isFocused) 12.dp else 4.dp)
+            .height(112.dp),
+        shape = TvCardDefaults.shape(cardShape),
+        scale = TvCardDefaults.scale(focusedScale = 1.03f),
+        border = TvCardDefaults.border(
+            border = TvBorder(
+                border = BorderStroke(1.dp, Color(0x33FFFFFF)),
+                shape = cardShape
+            ),
+            focusedBorder = TvBorder(
+                border = BorderStroke(2.dp, Color.White),
+                shape = cardShape
+            )
+        ),
+        colors = TvCardDefaults.colors(
+            containerColor = Color(0xFF131522),
+            focusedContainerColor = Color(0xFF1E2235)
+        )
     ) {
         Box(
             modifier = Modifier
@@ -291,6 +314,7 @@ fun SpotlightHeroCarousel(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun IptvCategoryRow(
     title: String,
@@ -300,6 +324,38 @@ fun IptvCategoryRow(
     modifier: Modifier = Modifier
 ) {
     if (channels.isEmpty()) return
+
+    val density = LocalDensity.current
+    val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    val layoutDirection = LocalLayoutDirection.current
+    val isRtl = layoutDirection == LayoutDirection.Rtl
+    val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, isRtl) {
+        val startPx = with(density) { 24.dp.roundToPx() }
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec: AnimationSpec<Float> =
+                defaultBringIntoViewSpec.scrollAnimationSpec
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                val childSize = kotlin.math.abs(size)
+                if (isRtl) {
+                    val childSmallerThanParent = childSize <= containerSize
+                    val initialTarget = containerSize - startPx.toFloat()
+                    val targetForTrailingEdge =
+                        if (childSmallerThanParent && initialTarget < childSize) {
+                            childSize
+                        } else {
+                            initialTarget
+                        }
+                    return (offset + size) - targetForTrailingEdge
+                } else {
+                    val target = startPx.toFloat()
+                    val space = containerSize - target
+                    val leading = if (childSize <= containerSize && space < childSize) containerSize - childSize else target
+                    return offset - leading
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -324,15 +380,20 @@ fun IptvCategoryRow(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            items(channels, key = { it.id }) { channel ->
-                HardcodedChannelCard(
-                    channel = channel,
-                    onClick = { onChannelClick(channel) }
-                )
+        CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusGroup(),
+                contentPadding = PaddingValues(start = 24.dp, end = 120.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(channels, key = { it.id }) { channel ->
+                    HardcodedChannelCard(
+                        channel = channel,
+                        onClick = { onChannelClick(channel) }
+                    )
+                }
             }
         }
     }

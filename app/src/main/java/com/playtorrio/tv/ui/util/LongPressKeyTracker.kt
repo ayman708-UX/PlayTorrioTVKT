@@ -8,6 +8,12 @@ import androidx.compose.runtime.remember
 @Composable
 fun rememberLongPressKeyTracker(): LongPressKeyTracker = remember { LongPressKeyTracker() }
 
+fun isSelectKey(keyCode: Int): Boolean {
+    return keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == KeyEvent.KEYCODE_ENTER ||
+        keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+}
+
 class LongPressKeyTracker(
     private val timeoutMillis: Long = ViewConfiguration.getLongPressTimeout().toLong()
 ) {

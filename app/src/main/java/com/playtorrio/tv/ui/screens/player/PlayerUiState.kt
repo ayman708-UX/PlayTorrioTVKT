@@ -126,6 +126,7 @@ data class PlayerUiState(
     val installedSubtitleAddonOrder: List<String> = emptyList(),
     // Episodes/streams side panel (for series)
     val showEpisodesPanel: Boolean = false,
+    val showChannelsPanel: Boolean = false,
     val isLoadingEpisodes: Boolean = false,
     val episodesError: String? = null,
     val episodesAll: List<Video> = emptyList(),
@@ -311,6 +312,9 @@ sealed class PlayerEvent {
     data class OnEpisodeStreamSelected(val stream: Stream) : PlayerEvent()
     data object OnShowSourcesPanel : PlayerEvent()
     data object OnDismissSourcesPanel : PlayerEvent()
+    data object OnShowChannelsPanel : PlayerEvent()
+    data object OnDismissChannelsPanel : PlayerEvent()
+    data class OnSwitchLiveChannel(val streamUrl: String, val title: String) : PlayerEvent()
     data object OnReloadSourceStreams : PlayerEvent()
     data class OnSourceAddonFilterSelected(val addonName: String?) : PlayerEvent()
     data class OnSourceStreamSelected(val stream: Stream) : PlayerEvent()

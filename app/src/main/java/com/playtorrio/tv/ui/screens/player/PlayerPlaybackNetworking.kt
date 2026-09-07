@@ -91,6 +91,77 @@ internal object PlayerPlaybackNetworking {
             .build()
     }
 
+    /**
+     * Dedicated OkHttpClient strictly for live IPTV streams (matching Televizo's network profile).
+     * Uses 70-second call and read timeouts so overloaded IPTV provider transcoders and temporary
+     * chunk stalls do not trigger socket aborts or continuous rebuffering.
+     */
+    internal val iptvLiveHttpClient: OkHttpClient by lazy {
+        val dispatcher = okhttp3.Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 32
+        }
+        OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .dns(IPv4FirstDns())
+            .eventListenerFactory(PlaybackConnectionEvents)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(70, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(70, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .addInterceptor { chain ->
+                val request = chain.request()
+                try {
+                    chain.proceed(request)
+                } catch (e: SSLException) {
+                    trustAllPlaybackHttpClient.newCall(request).execute()
+                }
+            }
+            .build()
+    }
+
+    fun createIptvHttpClient(defaultHeaders: Map<String, String> = emptyMap()): OkHttpClient {
+        val builder = iptvLiveHttpClient.newBuilder()
+        if (defaultHeaders.any { it.key.equals("Authorization", ignoreCase = true) }) {
+            val authValue = defaultHeaders.entries
+                .first { it.key.equals("Authorization", ignoreCase = true) }
+                .value
+            builder.addNetworkInterceptor { chain ->
+                val request = chain.request()
+                if (request.header("Authorization") == null) {
+                    chain.proceed(
+                        request.newBuilder()
+                            .header("Authorization", authValue)
+                            .build()
+                    )
+                } else {
+                    chain.proceed(request)
+                }
+            }
+        }
+        return builder
+            .let { PlayTorrioExoPlayerPerformanceHelper.applyNetworkOptimizations(it) }
+            .build()
+    }
+
+    @UnstableApi
+    fun createIptvDataSourceFactory(
+        context: android.content.Context,
+        defaultHeaders: Map<String, String> = emptyMap()
+    ): DataSource.Factory {
+        val client = createIptvHttpClient(defaultHeaders)
+        val customUa = defaultHeaders.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
+        val httpFactory = OkHttpDataSource.Factory(client).apply {
+            setDefaultRequestProperties(defaultHeaders)
+            setUserAgent(customUa ?: PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
+        }
+        val loggingHttp = LoggingDataSourceFactory(httpFactory, "IPTV-HTTP")
+        return DefaultDataSource.Factory(context, loggingHttp)
+    }
+
     fun createHttpClient(defaultHeaders: Map<String, String> = emptyMap()): OkHttpClient {
         val builder = playbackHttpClient.newBuilder()
         if (defaultHeaders.any { it.key.equals("Authorization", ignoreCase = true) }) {

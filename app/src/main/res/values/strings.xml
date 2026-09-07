@@ -2221,6 +2221,9 @@
     <string name="nav_home">Home</string>
     <string name="nav_iptv">IPTV</string>
     <string name="nav_anime">Anime</string>
+    <string name="nav_manga">Manga</string>
+    <string name="manga_spotlight_read">Read Now</string>
+    <string name="manga_search_hint">Search manga, manhwa, or authors…</string>
     <string name="nav_music">Music</string>
     <string name="music_spotlight_play">Play Now</string>
     <string name="music_section_trending">Trending Hits</string>

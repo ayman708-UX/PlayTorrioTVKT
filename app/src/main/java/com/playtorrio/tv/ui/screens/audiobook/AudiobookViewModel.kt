@@ -43,6 +43,12 @@ class AudiobookViewModel @Inject constructor(
     // Continue Listening strictly isolated to Audiobooks
     val continueListening: StateFlow<List<AudiobookProgress>> = progressRepository.continueListening
 
+    fun removeContinueListening(uuid: String) {
+        viewModelScope.launch {
+            progressRepository.removeProgress(uuid)
+        }
+    }
+
     // Player state forwards
     val currentPlayingBook = playerController.currentBook
     val chapters = playerController.chapters

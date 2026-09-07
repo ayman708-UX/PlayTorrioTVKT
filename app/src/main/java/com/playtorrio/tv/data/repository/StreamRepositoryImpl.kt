@@ -11,6 +11,7 @@ import com.playtorrio.tv.core.plugin.PluginManager
 import com.playtorrio.tv.core.plugin.resolvePluginSeasonEpisode
 import com.playtorrio.tv.core.profile.ProfileManager
 import com.playtorrio.tv.core.tmdb.TmdbService
+import com.playtorrio.tv.core.torrent.TorrentSettings
 import com.playtorrio.tv.data.local.DebridSettingsDataStore
 import com.playtorrio.tv.data.mapper.toDomain
 import com.playtorrio.tv.data.remote.api.AddonApi
@@ -55,7 +56,8 @@ class StreamRepositoryImpl @Inject constructor(
     private val debridStreamPresentation: DebridStreamPresentation,
     private val localDebridAvailabilityService: LocalDebridAvailabilityService,
     private val playTorrioHttpScraperManager: com.playtorrio.tv.core.scraper.PlayTorrioHttpScraperManager,
-    private val playTorrioP2PScraperManager: com.playtorrio.tv.core.scraper.p2p.PlayTorrioP2PScraperManager
+    private val playTorrioP2PScraperManager: com.playtorrio.tv.core.scraper.p2p.PlayTorrioP2PScraperManager,
+    private val torrentSettings: TorrentSettings
 ) : StreamRepository {
     private val streamSearchSessions = StreamSearchSessionCache()
     private val localPluginSearchPaused = MutableStateFlow(false)
@@ -82,7 +84,8 @@ class StreamRepositoryImpl @Inject constructor(
         val enabledScrapers: List<ScraperInfo>,
         val groupPluginsByRepository: Boolean,
         val pluginRepositories: List<PluginRepository>,
-        val debridSettings: DebridSettings
+        val debridSettings: DebridSettings,
+        val p2pEnabled: Boolean
     )
 
     override fun getStreamsFromAllAddons(
@@ -109,7 +112,8 @@ class StreamRepositoryImpl @Inject constructor(
                 pluginRepositories = sourceConfiguration.pluginRepositories,
                 debridPresentationConfiguration = sourceConfiguration.debridSettings
                     .withoutRawCredentials()
-                    .toString()
+                    .toString(),
+                p2pEnabled = sourceConfiguration.p2pEnabled
             )
         )
 
@@ -127,6 +131,7 @@ class StreamRepositoryImpl @Inject constructor(
                     debridSettings = sourceConfiguration.debridSettings,
                     hasCompatiblePlugins = sourceConfiguration.pluginsEnabled &&
                         sourceConfiguration.enabledScrapers.any { scraper -> scraper.supportsType(type) },
+                    p2pEnabled = sourceConfiguration.p2pEnabled,
                     contentTitle = contentTitle,
                     contentYear = contentYear
                 )
@@ -143,6 +148,7 @@ class StreamRepositoryImpl @Inject constructor(
             val groupPluginsByRepository = pluginsEnabled && pluginManager.groupStreamsByRepository.first()
             val pluginRepositories = if (groupPluginsByRepository) pluginManager.repositories.first() else emptyList()
             val debridSettings = debridSettingsDataStore.settings.first()
+            val p2pEnabled = torrentSettings.settings.first().p2pEnabled
 
             if (profileManager.activeProfileId.value != profileId) continue
 
@@ -153,7 +159,8 @@ class StreamRepositoryImpl @Inject constructor(
                 enabledScrapers = enabledScrapers,
                 groupPluginsByRepository = groupPluginsByRepository,
                 pluginRepositories = pluginRepositories,
-                debridSettings = debridSettings
+                debridSettings = debridSettings,
+                p2pEnabled = p2pEnabled
             )
         }
     }
@@ -167,6 +174,7 @@ class StreamRepositoryImpl @Inject constructor(
         addons: List<Addon>,
         debridSettings: DebridSettings,
         hasCompatiblePlugins: Boolean,
+        p2pEnabled: Boolean,
         contentTitle: String? = null,
         contentYear: Int? = null
     ): Flow<NetworkResult<List<AddonStreams>>> = flow {
@@ -190,8 +198,8 @@ class StreamRepositoryImpl @Inject constructor(
                 // Channel to receive results as they complete
                 val resultChannel = Channel<AddonStreams>(Channel.UNLIMITED)
                 
-                // Track number of pending jobs (addons + plugins + PlayTorrioHTTP + PlayTorrio P2P)
-                val totalJobs = streamAddons.size + 3
+                // Track number of pending jobs (addons + plugins + PlayTorrioHTTP + PlayTorrio P2P if enabled)
+                val totalJobs = streamAddons.size + 2 + (if (p2pEnabled) 1 else 0)
                 val completedJobs = java.util.concurrent.atomic.AtomicInteger(0)
 
                 // Launch addon jobs
@@ -305,55 +313,57 @@ class StreamRepositoryImpl @Inject constructor(
                     }
                 }
 
-                // Launch PlayTorrio (P2P torrent scraper) built-in scraper job
-                launch {
-                    try {
-                        val tmdbIdStr = tmdbService.ensureTmdbId(videoId, type)
-                        val tmdbIdInt = tmdbIdStr?.toIntOrNull()
-                        val imdbId = if (videoId.startsWith("tt")) videoId.substringBefore(":") else null
-                        val (pluginSeason, pluginEpisode) = resolvePluginSeasonEpisode(
-                            videoId = videoId,
-                            season = season,
-                            episode = episode
-                        )
+                // Launch PlayTorrio (P2P torrent scraper) built-in scraper job only if P2P streaming is enabled
+                if (p2pEnabled) {
+                    launch {
+                        try {
+                            val tmdbIdStr = tmdbService.ensureTmdbId(videoId, type)
+                            val tmdbIdInt = tmdbIdStr?.toIntOrNull()
+                            val imdbId = if (videoId.startsWith("tt")) videoId.substringBefore(":") else null
+                            val (pluginSeason, pluginEpisode) = resolvePluginSeasonEpisode(
+                                videoId = videoId,
+                                season = season,
+                                episode = episode
+                            )
 
-                        var mediaTitle = contentTitle?.takeIf { it.isNotBlank() && !it.startsWith("tt") } ?: videoId
-                        var mediaYear: Int? = contentYear
+                            var mediaTitle = contentTitle?.takeIf { it.isNotBlank() && !it.startsWith("tt") } ?: videoId
+                            var mediaYear: Int? = contentYear
 
-                        if ((mediaTitle == videoId || mediaTitle.startsWith("tt")) && tmdbIdInt != null) {
-                            tmdbService.getMediaDetails(tmdbIdInt, type)?.let { (resolvedTitle, resolvedYear) ->
-                                if (resolvedTitle.isNotBlank()) {
-                                    mediaTitle = resolvedTitle
-                                    mediaYear = resolvedYear
+                            if ((mediaTitle == videoId || mediaTitle.startsWith("tt")) && tmdbIdInt != null) {
+                                tmdbService.getMediaDetails(tmdbIdInt, type)?.let { (resolvedTitle, resolvedYear) ->
+                                    if (resolvedTitle.isNotBlank()) {
+                                        mediaTitle = resolvedTitle
+                                        mediaYear = resolvedYear
+                                    }
                                 }
                             }
-                        }
 
-                        playTorrioP2PScraperManager.scrapeStreamsDynamic(
-                            type = type,
-                            title = mediaTitle,
-                            year = mediaYear,
-                            season = pluginSeason,
-                            episode = pluginEpisode,
-                            imdbId = imdbId,
-                            tmdbId = tmdbIdInt
-                        ) { streamsBatch ->
-                            if (streamsBatch.isNotEmpty()) {
-                                resultChannel.send(
-                                    AddonStreams(
-                                        addonName = com.playtorrio.tv.core.scraper.p2p.PlayTorrioP2PScraperManager.ADDON_NAME,
-                                        addonLogo = null,
-                                        streams = streamsBatch
+                            playTorrioP2PScraperManager.scrapeStreamsDynamic(
+                                type = type,
+                                title = mediaTitle,
+                                year = mediaYear,
+                                season = pluginSeason,
+                                episode = pluginEpisode,
+                                imdbId = imdbId,
+                                tmdbId = tmdbIdInt
+                            ) { streamsBatch ->
+                                if (streamsBatch.isNotEmpty()) {
+                                    resultChannel.send(
+                                        AddonStreams(
+                                            addonName = com.playtorrio.tv.core.scraper.p2p.PlayTorrioP2PScraperManager.ADDON_NAME,
+                                            addonLogo = null,
+                                            streams = streamsBatch
+                                        )
                                     )
-                                )
+                                }
                             }
-                        }
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        Log.e(TAG, "PlayTorrio P2P scraping failed: ${e.message}")
-                    } finally {
-                        if (completedJobs.incrementAndGet() >= totalJobs) {
-                            resultChannel.close()
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            Log.e(TAG, "PlayTorrio P2P scraping failed: ${e.message}")
+                        } finally {
+                            if (completedJobs.incrementAndGet() >= totalJobs) {
+                                resultChannel.close()
+                            }
                         }
                     }
                 }
@@ -433,7 +443,8 @@ class StreamRepositoryImpl @Inject constructor(
         enabledScrapers: List<ScraperInfo>,
         groupPluginsByRepository: Boolean,
         pluginRepositories: List<PluginRepository>,
-        debridPresentationConfiguration: String
+        debridPresentationConfiguration: String,
+        p2pEnabled: Boolean
     ): String = buildString {
         append("addons:")
         addons.forEach { addon ->
@@ -450,6 +461,7 @@ class StreamRepositoryImpl @Inject constructor(
             }
         }
         append("|debrid:").append(debridPresentationConfiguration)
+        append("|p2p:").append(p2pEnabled)
     }.sha256()
 
     private fun DebridSettings.withoutRawCredentials(): DebridSettings = copy(

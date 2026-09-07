@@ -156,6 +156,32 @@ sealed class Screen(val route: String) {
         }
     }
     data object Anime : Screen("anime")
+    data object Manga : Screen("manga")
+    data object MangaDetail : Screen("manga_detail/{seriesId}?heroBackdropUrl={heroBackdropUrl}") {
+        private fun encode(value: String): String =
+            java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(seriesId: String, heroBackdropUrl: String? = null): String {
+            val encId = encode(seriesId)
+            val encBackdrop = heroBackdropUrl?.let { encode(it) } ?: ""
+            return "manga_detail/$encId?heroBackdropUrl=$encBackdrop"
+        }
+    }
+    data object MangaReader : Screen("manga_reader/{seriesId}/{chapterId}?chapterIndex={chapterIndex}&pageIndex={pageIndex}") {
+        private fun encode(value: String): String =
+            java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(
+            seriesId: String,
+            chapterId: String,
+            chapterIndex: Int = 0,
+            pageIndex: Int = 0
+        ): String {
+            val encSeries = encode(seriesId)
+            val encChapter = encode(chapterId)
+            return "manga_reader/$encSeries/$encChapter?chapterIndex=$chapterIndex&pageIndex=$pageIndex"
+        }
+    }
     data object Music : Screen("music")
     data object MusicPlayer : Screen("music_player")
     data object Audiobooks : Screen("audiobooks")

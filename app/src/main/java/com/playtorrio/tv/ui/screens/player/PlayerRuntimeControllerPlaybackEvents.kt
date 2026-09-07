@@ -995,6 +995,7 @@ fun PlayerRuntimeController.scheduleHideControls() {
             !_uiState.value.showSubtitleDelayOverlay &&
             !_uiState.value.showSubtitleTimingDialog &&
             !_uiState.value.showEpisodesPanel && !_uiState.value.showSourcesPanel &&
+            !_uiState.value.showChannelsPanel &&
             !_uiState.value.showStreamInfoOverlay) {
             _uiState.update { it.copy(showControls = false) }
         }
@@ -1100,7 +1101,7 @@ internal fun PlayerRuntimeController.schedulePauseOverlay() {
         val s = _uiState.value
         val anyPanelOpen = s.showSubtitleOverlay || s.showSubtitleStylePanel ||
             s.showSpeedDialog || s.showMoreDialog || s.showEpisodesPanel ||
-            s.showSourcesPanel || s.showAudioOverlay || s.showStreamInfoOverlay ||
+            s.showSourcesPanel || s.showChannelsPanel || s.showAudioOverlay || s.showStreamInfoOverlay ||
             s.showSubtitleTimingDialog || s.showSubtitleDelayOverlay
         if (!s.isPlaying && s.pauseOverlayEnabled && s.error == null && !anyPanelOpen) {
             _uiState.update { it.copy(showPauseOverlay = true, showControls = false) }
@@ -1545,6 +1546,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnDismissSourcesPanel -> {
             dismissSourcesPanel()
         }
+        PlayerEvent.OnShowChannelsPanel -> {
+            showChannelsPanel()
+        }
+        PlayerEvent.OnDismissChannelsPanel -> {
+            dismissChannelsPanel()
+        }
+        is PlayerEvent.OnSwitchLiveChannel -> {
+            switchLiveChannel(event.streamUrl, event.title)
+        }
         PlayerEvent.OnReloadSourceStreams -> {
             loadSourceStreams(forceRefresh = true)
         }
@@ -1563,7 +1573,8 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     showSubtitleTimingDialog = false,
                     showSpeedDialog = false,
                     showSubtitleDelayOverlay = false,
-                    showMoreDialog = false
+                    showMoreDialog = false,
+                    showChannelsPanel = false
                 )
             }
             scheduleHideControls()
@@ -1827,4 +1838,43 @@ private fun formatTorrentSpeed(context: android.content.Context, bytesPerSec: Lo
         bytesPerSec >= 1_024 -> context.getString(R.string.unit_speed_kb_s, String.format("%.0f", bytesPerSec / 1_024.0))
         else -> context.getString(R.string.unit_speed_b_s, bytesPerSec)
     }
+}
+
+internal fun PlayerRuntimeController.showChannelsPanel() {
+    hideControlsJob?.cancel()
+    _uiState.update {
+        it.copy(
+            showChannelsPanel = true,
+            showControls = false,
+            showEpisodesPanel = false,
+            showSourcesPanel = false
+        )
+    }
+}
+
+internal fun PlayerRuntimeController.dismissChannelsPanel() {
+    _uiState.update { it.copy(showChannelsPanel = false) }
+    scheduleHideControls()
+}
+
+internal fun PlayerRuntimeController.switchLiveChannel(streamUrl: String, title: String) {
+    _uiState.update {
+        it.copy(
+            showChannelsPanel = false,
+            isBuffering = true,
+            error = null,
+            currentStreamName = title,
+            currentStreamUrl = streamUrl,
+            audioTracks = emptyList(),
+            subtitleTracks = emptyList(),
+            selectedAudioTrackIndex = -1,
+            selectedSubtitleTrackIndex = -1
+        )
+    }
+    val headers = mapOf("User-Agent" to "VLC/3.0.20 LibVLC/3.0.20")
+    preparePlaybackBeforeStart(
+        url = streamUrl,
+        headers = headers,
+        loadSavedProgress = false
+    )
 }

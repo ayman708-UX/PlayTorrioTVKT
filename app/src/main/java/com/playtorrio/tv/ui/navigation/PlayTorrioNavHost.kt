@@ -62,6 +62,9 @@ import com.playtorrio.tv.ui.screens.anime.AnimeHomeScreen
 import com.playtorrio.tv.ui.screens.anime.AnimeSearchScreen
 import com.playtorrio.tv.ui.screens.anime.AnimeDetailsScreen
 import com.playtorrio.tv.ui.screens.anime.AnimeStreamScreen
+import com.playtorrio.tv.ui.screens.manga.MangaHomeScreen
+import com.playtorrio.tv.ui.screens.manga.MangaDetailsScreen
+import com.playtorrio.tv.ui.screens.manga.MangaReaderScreen
 import com.playtorrio.tv.ui.screens.music.MusicHomeScreen
 import com.playtorrio.tv.ui.screens.music.MusicPlayerScreen
 import com.playtorrio.tv.ui.screens.audiobook.AudiobookHomeScreen
@@ -1393,6 +1396,40 @@ fun PlayTorrioNavHost(
                 },
                 onNavigateToSearch = {
                     navController.navigate(Screen.AnimeSearch.route)
+                }
+            )
+        }
+
+        composable(Screen.Manga.route) {
+            MangaHomeScreen(
+                onNavigateToDetails = { seriesId ->
+                    navController.navigate(Screen.MangaDetail.createRoute(seriesId))
+                },
+                onNavigateToReader = { seriesId, chapterId, chapterIndex, pageIndex ->
+                    navController.navigate(
+                        Screen.MangaReader.createRoute(seriesId, chapterId, chapterIndex, pageIndex)
+                    )
+                }
+            )
+        }
+
+        composable(Screen.MangaDetail.route) {
+            MangaDetailsScreen(
+                onBackPress = {
+                    navController.popBackStack()
+                },
+                onNavigateToReader = { seriesId, chapterId, chapterIndex, pageIndex ->
+                    navController.navigate(
+                        Screen.MangaReader.createRoute(seriesId, chapterId, chapterIndex, pageIndex)
+                    )
+                }
+            )
+        }
+
+        composable(Screen.MangaReader.route) {
+            MangaReaderScreen(
+                onBackPress = {
+                    navController.popBackStack()
                 }
             )
         }

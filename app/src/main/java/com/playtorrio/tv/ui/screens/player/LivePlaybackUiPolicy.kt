@@ -10,7 +10,8 @@ package com.playtorrio.tv.ui.screens.player
  */
 object LivePlaybackUiPolicy {
     fun isLiveContentType(contentType: String?): Boolean {
-        return contentType.equals("channel", ignoreCase = true)
+        return contentType.equals("channel", ignoreCase = true) ||
+            contentType.equals("live", ignoreCase = true)
     }
 
     fun nextLiveLatch(playerReportsLive: Boolean, previouslyLatched: Boolean): Boolean {

@@ -20,6 +20,7 @@ import com.playtorrio.tv.core.cloud.CloudLibraryPlaybackProgressStore
 import com.playtorrio.tv.core.cloud.CloudLibraryPlaybackSessionStore
 import com.playtorrio.tv.core.cloud.CloudLibraryRepository
 import com.playtorrio.tv.core.plugin.PluginManager
+import com.playtorrio.tv.core.iptv.context.IptvChannelContextHolder
 import com.playtorrio.tv.core.tracking.TrackingMediaReference
 import com.playtorrio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.playtorrio.tv.core.torrent.TorrentService
@@ -171,6 +172,10 @@ class PlayerRuntimeController(
     internal val headersJson: String? = navigationArgs.headersJson
     internal val contentId: String? = navigationArgs.contentId
     internal val contentType: String? = navigationArgs.contentType
+    internal val isIptvPlayback: Boolean
+        get() = contentType.equals("live", ignoreCase = true) ||
+            contentType.equals("channel", ignoreCase = true) ||
+            IptvChannelContextHolder.hasContext()
     internal val contentName: String? = navigationArgs.contentName
     internal val poster: String? = navigationArgs.poster
     internal val backdrop: String? = navigationArgs.backdrop

@@ -467,7 +467,15 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .build()
             }
             val bandwidthMeter = SafeBandwidthMeter(rawBandwidthMeter, isHls)
-            val loadControl = if (playerSettings.playtorrioPerformanceModeEnabled) {
+            val loadControl = if (isIptvPlayback) {
+                effectiveBackBufferDurationMs = 0
+                currentBitrateAwareLoadControl = null
+                Log.i(
+                    PlayerRuntimeController.TAG,
+                    "BUFFER_GATE: engine=televizo-iptv-live; using tuned 6s-15s live LoadControl (no back-buffer) host=${url.safeHost()}"
+                )
+                PlayTorrioExoPlayerPerformanceHelper.buildIptvLiveLoadControl()
+            } else if (playerSettings.playtorrioPerformanceModeEnabled) {
                 effectiveBackBufferDurationMs = PlayTorrioExoPlayerPerformanceHelper.backBufferMs
                 currentBitrateAwareLoadControl = null
                 Log.i(
@@ -677,7 +685,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 }
             }.apply {
                 setParameters(buildUponParameters().setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true))
-                if (playerSettings.effectiveTunnelingEnabled && !safeAudioModeEnabled) {
+                val shouldEnableTunneling = (playerSettings.effectiveTunnelingEnabled || isIptvPlayback) && !safeAudioModeEnabled
+                if (shouldEnableTunneling) {
                     setParameters(buildUponParameters().setTunnelingEnabled(true))
                 } else if (safeAudioModeEnabled) {
                     setParameters(buildUponParameters().setTunnelingEnabled(false).setConstrainAudioChannelCountToDeviceCapabilities(true))
@@ -725,8 +734,15 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
 
             // ── Extractors & DV Hook ──
+            val tsFlags = if (isIptvPlayback) {
+                DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
+                    DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+            } else {
+                DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+            }
             val extractorsFactory = DefaultExtractorsFactory()
-                .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+                .setTsExtractorFlags(tsFlags)
                 .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
 
             // Manual Convert-to-DV8.1 uses mode 2; if a prior attempt at this stream
@@ -902,7 +918,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                     extractorsFactory = effectiveExtractorsFactory,
                     subtitleParserFactory = null
                 )
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
+                val playerDataSourceFactory = if (isIptvPlayback) {
+                    PlayerPlaybackNetworking.createIptvDataSourceFactory(context, headers)
+                } else {
+                    PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
+                }
                 ExoPlayer.Builder(context)
                     .setBandwidthMeter(bandwidthMeter)
                     .setTrackSelector(trackSelector!!)
@@ -918,7 +938,11 @@ internal fun PlayerRuntimeController.initializePlayer(
             delay(PLAYER_REBUILD_SETTLE_DELAY_MS)
 
             _exoPlayer = if (useLibass) {
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
+                val playerDataSourceFactory = if (isIptvPlayback) {
+                    PlayerPlaybackNetworking.createIptvDataSourceFactory(context, headers)
+                } else {
+                    PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
+                }
                 ExoPlayer.Builder(context)
                     .setBandwidthMeter(bandwidthMeter)
                     .setLoadControl(loadControl)
@@ -993,7 +1017,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                     responseHeaders = currentStreamResponseHeaders,
                     mimeTypeOverride = currentStreamMimeType,
                     audioDelayUsProvider = audioDelayUs::get,
-                    mediaMetadata = buildMediaSessionMetadata()
+                    mediaMetadata = buildMediaSessionMetadata(),
+                    isIptvStream = isIptvPlayback
                 )
 
                 if (initialResumePosition > 0L) {

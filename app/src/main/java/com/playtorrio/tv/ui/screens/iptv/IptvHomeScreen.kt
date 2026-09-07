@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.playtorrio.tv.core.iptv.channels.HardcodedChannel
 import com.playtorrio.tv.core.iptv.channels.HardcodedChannels
+import com.playtorrio.tv.core.iptv.context.IptvChannelContextHolder
 import com.playtorrio.tv.core.iptv.model.ChannelHit
 
 @Composable
@@ -311,6 +312,10 @@ fun IptvHomeScreen(
                 onDismiss = { selectedChannelForSources = null },
                 onPlayHit = { hit ->
                     selectedChannelForSources = null
+                    IptvChannelContextHolder.setHardcodedContext(
+                        currentChannelId = channel.id,
+                        allChannels = HardcodedChannels.all
+                    )
                     onPlayStream(hit.streamUrl, "${channel.name} (${hit.portal.name})")
                 }
             )

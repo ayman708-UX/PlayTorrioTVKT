@@ -881,6 +881,7 @@ private fun ProfileGrid(
                     ProfileCard(
                         profile = profile,
                         avatarImageUrl = profile.avatarUrl?.takeIf { it.isNotBlank() }
+                            ?: profile.avatarId?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
                             ?: profile.avatarId?.let(avatarImageUrlsById::get),
                         focusRequester = focusRequesters[index],
                         compact = useCompactCards,

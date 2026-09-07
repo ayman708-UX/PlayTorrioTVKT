@@ -7,6 +7,7 @@ data class SimklApiConfiguration(
     val clientId: String,
     val appName: String,
     val appVersion: String,
+    val clientSecret: String = "",
     val baseUrl: String = "https://api.simkl.com"
 )
 
@@ -21,6 +22,9 @@ fun buildSimklApiUrl(
         builder.addQueryParameter(key, value)
     }
     builder.addQueryParameter("client_id", configuration.clientId)
+    if (configuration.clientSecret.isNotBlank() && normalizedPath.startsWith("/oauth")) {
+        builder.addQueryParameter("client_secret", configuration.clientSecret)
+    }
     builder.addQueryParameter("app-name", configuration.appName)
     builder.addQueryParameter("app-version", configuration.appVersion)
     return builder.build().toString()
@@ -42,8 +46,9 @@ fun simklRequestHeaders(
 fun defaultSimklApiConfiguration(): SimklApiConfiguration = SimklApiConfiguration(
     clientId = BuildConfig.SIMKL_CLIENT_ID,
     appName = BuildConfig.SIMKL_APP_NAME.ifBlank { "playtorrio" },
-    appVersion = BuildConfig.VERSION_NAME.ifBlank { "dev" }
+    appVersion = BuildConfig.VERSION_NAME.ifBlank { "dev" },
+    clientSecret = BuildConfig.SIMKL_CLIENT_SECRET
 )
 
-private val SIMKL_REQUIRED_QUERY_KEYS = setOf("client_id", "app-name", "app-version")
+private val SIMKL_REQUIRED_QUERY_KEYS = setOf("client_id", "client_secret", "app-name", "app-version")
 private const val SIMKL_USER_AGENT_APP_NAME = "PlayTorrioTV"

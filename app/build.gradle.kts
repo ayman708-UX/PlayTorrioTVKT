@@ -17,23 +17,6 @@ fun parseBooleanProperty(value: String?): Boolean {
     return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
 }
 
-fun resolveProperty(dev: Properties, local: Properties, key: String, fallback: String = ""): String {
-    return dev.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
-        ?: local.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
-        ?: fallback
-}
-
-fun buildConfigString(value: String): String {
-    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-}
-
-fun cmakePath(path: String): String {
-    if (path.isBlank()) return ""
-    val file = File(path)
-    val resolved = if (file.isAbsolute) file else rootProject.file(path)
-    return resolved.absolutePath.replace("\\", "/")
-}
-
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
@@ -46,6 +29,52 @@ val devProperties = Properties().apply {
     if (devPropertiesFile.exists()) {
         load(devPropertiesFile.inputStream())
     }
+}
+
+val envProperties = Properties().apply {
+    val envFile = rootProject.file(".env")
+    if (envFile.exists()) {
+        envFile.bufferedReader().useLines { lines ->
+            lines.map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+                .forEach { line ->
+                    val index = line.indexOf('=')
+                    val key = line.substring(0, index).trim()
+                    var value = line.substring(index + 1).trim()
+                    if ((value.startsWith("\"") && value.endsWith("\"")) ||
+                        (value.startsWith("'") && value.endsWith("'"))) {
+                        value = value.substring(1, value.length - 1)
+                    }
+                    setProperty(key, value)
+                }
+        }
+    }
+}
+
+// Merge env properties into localProperties as fallback so any direct read also picks them up
+envProperties.forEach { key, value ->
+    if (!localProperties.containsKey(key)) {
+        localProperties[key] = value
+    }
+}
+
+fun resolveProperty(dev: Properties, local: Properties, key: String, fallback: String = ""): String {
+    return dev.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
+        ?: local.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
+        ?: envProperties.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(key).orNull?.trim()?.takeIf { it.isNotBlank() }
+        ?: fallback
+}
+
+fun buildConfigString(value: String): String {
+    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+fun cmakePath(path: String): String {
+    if (path.isBlank()) return ""
+    val file = File(path)
+    val resolved = if (file.isAbsolute) file else rootProject.file(path)
+    return resolved.absolutePath.replace("\\", "/")
 }
 
 val enableDoviNative = parseBooleanProperty(
@@ -108,23 +137,24 @@ android {
         applicationId = "com.playtorrio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1054
-        versionName = "1.1.0"
+        versionCode = 1055
+        versionName = "1.1.1"
 
-        buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
-        buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
-        buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
-        buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${localProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "")}\"")
-        buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "")}\"")
-        buildConfigField("String", "TRAKT_CLIENT_ID", "\"${localProperties.getProperty("TRAKT_CLIENT_ID", "")}\"")
-        buildConfigField("String", "TRAKT_CLIENT_SECRET", "\"${localProperties.getProperty("TRAKT_CLIENT_SECRET", "")}\"")
-        buildConfigField("String", "TRAKT_API_URL", "\"${localProperties.getProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
-        buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${localProperties.getProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
-        buildConfigField("String", "SIMKL_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_ID")))
+        buildConfigField("String", "PARENTAL_GUIDE_API_URL", buildConfigString(resolveProperty(devProperties, localProperties, "PARENTAL_GUIDE_API_URL", "")))
+        buildConfigField("String", "INTRODB_API_URL", buildConfigString(resolveProperty(devProperties, localProperties, "INTRODB_API_URL", "")))
+        buildConfigField("String", "TRAILER_API_URL", buildConfigString(resolveProperty(devProperties, localProperties, "TRAILER_API_URL", "")))
+        buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "IMDB_RATINGS_API_BASE_URL", "")))
+        buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "IMDB_TAPFRAME_API_BASE_URL", "")))
+        buildConfigField("String", "TRAKT_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "TRAKT_CLIENT_ID", "")))
+        buildConfigField("String", "TRAKT_CLIENT_SECRET", buildConfigString(resolveProperty(devProperties, localProperties, "TRAKT_CLIENT_SECRET", "")))
+        buildConfigField("String", "TRAKT_API_URL", buildConfigString(resolveProperty(devProperties, localProperties, "TRAKT_API_URL", "https://api.trakt.tv/")))
+        buildConfigField("String", "TRAKT_REDIRECT_URI", buildConfigString(resolveProperty(devProperties, localProperties, "TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")))
+        buildConfigField("String", "SIMKL_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_ID", "")))
+        buildConfigField("String", "SIMKL_CLIENT_SECRET", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_SECRET", "")))
         buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "playtorrio")))
-        buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
-        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://playtorrio.tv/tv-login")}\"")
-        buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://playtorrio.tv/link")}\"")
+        buildConfigField("String", "TMDB_API_KEY", buildConfigString(resolveProperty(devProperties, localProperties, "TMDB_API_KEY", "")))
+        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "TV_LOGIN_WEB_BASE_URL", "https://playtorrio.tv/tv-login")))
+        buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "DEVICE_LOGIN_WEB_BASE_URL", "https://playtorrio.tv/link")))
         buildConfigField("boolean", "DOVI_NATIVE_ENABLED", enableDoviNative.toString())
         buildConfigField("boolean", "DOVI_EXTRACTOR_HOOK_READY", doviExtractorHookReady.toString())
         if (enableDoviNative) {

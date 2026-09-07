@@ -3,6 +3,8 @@
 *.apks
 /local.properties
 /local.dev.properties
+.env
+.env.*
 .idea/
 .DS_Store
 __pycache__/
